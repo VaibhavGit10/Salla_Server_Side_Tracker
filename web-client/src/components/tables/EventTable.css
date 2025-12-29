@@ -1,0 +1,72 @@
+.event-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.event-table th {
+  text-align: left;
+  font-size: 13px;
+  color: #94a3b8;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.event-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.status {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.status.success {
+  background: rgba(34,197,94,0.15);
+  color: #22c55e;
+}
+
+.status.failed {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+}
+
+.status.pending {
+  background: rgba(250,204,21,0.15);
+  color: #facc15;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: #6366f1;
+  cursor: pointer;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: #020617;
+  padding: 20px;
+  border-radius: 12px;
+  width: 500px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.modal pre {
+  font-size: 12px;
+  background: #020617;
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 12px;
+  border-radius: 8px;
+}
