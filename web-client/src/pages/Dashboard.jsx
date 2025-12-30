@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { ConversionTrend, PlatformDistribution } from "../components/cards/Charts";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
 
@@ -8,596 +7,440 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   const summary = {
-    forwarded: 12,
-    successRate: 92,
+    forwarded: 1280,
+    successRate: 93.4,
     revenue: 18450,
-    signalLoss: 1,
+    signalLoss: 0.8,
     forwardedDelta: 18,
     successDelta: 2.5,
     revenueDelta: 12.2,
     signalLossDelta: -0.3
   };
 
-  const trendData = [
-    { date: "Mon", value: 1200 },
-    { date: "Tue", value: 2400 },
-    { date: "Wed", value: 1800 },
-    { date: "Thu", value: 3200 },
-    { date: "Fri", value: 4100 }
+  const platformDistribution = [
+    { platform: "GA4", value: 55, color: "#0D6EFD" },
+    { platform: "Meta", value: 20, color: "#1877F2" },
+    { platform: "TikTok", value: 15, color: "#FE2C55" },
+    { platform: "Snap", value: 10, color: "#FFC107" }
   ];
 
-  const platformData = [
-    { platform: "GA4", value: 70 },
-    { platform: "Meta", value: 20 },
-    { platform: "TikTok", value: 10 }
+  const trafficTrend = {
+    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    series: [
+      { name: "GA4", color: "#0D6EFD", data: [2200, 2500, 2100, 2800, 3200, 2900, 3500] },
+      { name: "Meta", color: "#1877F2", data: [900, 1100, 1200, 1000, 1400, 1350, 1500] },
+      { name: "TikTok", color: "#FE2C55", data: [420, 560, 610, 720, 780, 820, 900] },
+      { name: "Snap", color: "#FFC107", data: [210, 260, 240, 310, 330, 360, 410] }
+    ]
+  };
+
+  const platformCards = [
+    {
+      name: "GA4",
+      desc: "Analytics events",
+      pill: "Tracking",
+      tone: "#0D6EFD",
+      accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)",
+      stats: { forwarded: 720, successRate: 95.1, revenue: 10200, loss: 0.4 }
+    },
+    {
+      name: "Meta",
+      desc: "Conversions API",
+      pill: "CAPI",
+      tone: "#1877F2",
+      accent: "linear-gradient(90deg,#1877F2,#42A5F5)",
+      stats: { forwarded: 340, successRate: 92.3, revenue: 5200, loss: 0.9 }
+    },
+    {
+      name: "TikTok",
+      desc: "Events API",
+      pill: "Events",
+      tone: "#FE2C55",
+      accent: "linear-gradient(90deg,#25F4EE,#000,#FE2C55)",
+      stats: { forwarded: 150, successRate: 89.6, revenue: 2050, loss: 1.4 }
+    },
+    {
+      name: "Snap",
+      desc: "Conversions API",
+      pill: "Pixel",
+      tone: "#FFC107",
+      accent: "linear-gradient(90deg,#FFFC00,#FFC107)",
+      stats: { forwarded: 70, successRate: 91.2, revenue: 1000, loss: 0.7 }
+    }
   ];
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 700);
+    const t = setTimeout(() => setLoading(false), 650);
     return () => clearTimeout(t);
   }, []);
 
   const kpis = useMemo(
     () => [
-      {
-        label: "Events Forwarded",
-        value: summary.forwarded,
-        hint: "vs last period",
-        delta: summary.forwardedDelta,
-        icon: "📤",
-        tone: "blue",
-        glow: "rgba(13,110,253,0.22)"
-      },
-      {
-        label: "Success Rate",
-        value: `${summary.successRate}%`,
-        hint: "vs last period",
-        delta: summary.successDelta,
-        icon: "✅",
-        tone: "green",
-        glow: "rgba(25,135,84,0.20)"
-      },
-      {
-        label: "Attributed Value",
-        value: `SAR ${formatMoney(summary.revenue)}`,
-        hint: "vs last period",
-        delta: summary.revenueDelta,
-        icon: "💰",
-        tone: "cyan",
-        glow: "rgba(13,202,240,0.22)"
-      },
-      {
-        label: "Signal Loss",
-        value: summary.signalLoss,
-        hint: "vs last period",
-        delta: summary.signalLossDelta,
-        icon: "📡",
-        tone: "yellow",
-        glow: "rgba(255,193,7,0.18)"
-      }
+      { label: "Total Events", value: summary.forwarded, delta: summary.forwardedDelta, icon: "📤", tone: "blue" },
+      { label: "Success Rate", value: `${summary.successRate}%`, delta: summary.successDelta, icon: "✅", tone: "green" },
+      { label: "Attributed Value", value: `SAR ${formatMoney(summary.revenue)}`, delta: summary.revenueDelta, icon: "💰", tone: "pink" },
+      { label: "Signal Loss", value: `${summary.signalLoss}%`, delta: summary.signalLossDelta, icon: "📡", tone: "yellow" }
     ],
     [summary]
   );
 
+  const totalTraffic = useMemo(() => {
+    return trafficTrend.series.reduce((sum, s) => sum + (s.data || []).reduce((a, b) => a + b, 0), 0);
+  }, [trafficTrend]);
+
   return (
     <div className="dash">
-      {/* ✅ HERO */}
-      <section className="hero">
-        <div className="heroLeft">
-          <div className="heroBadge">
-            <span className="pulseDot" />
-            Live Dashboard
-            <span className="badgePill">Realtime</span>
+      {/* TOP BAR */}
+      <div className="topbar">
+        <div className="brandArea">
+          <div className="logoBubble">∿</div>
+          <div>
+            <div className="brandTitle">Salla Hub</div>
+            <div className="brandSub">Server-side tracking overview</div>
           </div>
-
-          <div className="heroTitle">Executive Summary</div>
-          <div className="heroSub">Overview for store: <b>{storeId}</b></div>
         </div>
 
-        <div className="heroRight">
+        <div className="topbarRight">
+          <div className="storeChip">
+            <span className="dotLive" />
+            Store: <b>{storeId}</b>
+          </div>
+          <div className="rangeChip">Last 7 days</div>
+
           <button className="btn ghost" type="button">Export</button>
           <button className="btn primary" type="button">
-            View Details
-            <span className="shine" />
+            View Details <span className="shine" />
           </button>
         </div>
-      </section>
+      </div>
 
-      {/* ✅ KPI GRID */}
-      <section className="kpiGrid">
+      {/* KPI GRID */}
+      <div className="grid4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="kpiCard" key={i}>
-                <div className="kpiTop">
-                  <Skeleton height={14} width="60%" />
-                  <Skeleton height={44} width={44} />
-                </div>
-                <div style={{ marginTop: 14 }}>
-                  <Skeleton height={30} width="55%" />
-                </div>
+              <div className="kpi" key={i}>
+                <Skeleton height={14} width="55%" />
                 <div style={{ marginTop: 12 }}>
+                  <Skeleton height={34} width="65%" />
+                </div>
+                <div style={{ marginTop: 10 }}>
                   <Skeleton height={12} width="45%" />
                 </div>
               </div>
             ))
-          : kpis.map(k => <KPI key={k.label} {...k} />)}
-      </section>
+          : kpis.map((k) => <KPI key={k.label} {...k} />)}
+      </div>
 
-      {/* ✅ CHARTS */}
-      <section className="chartsGrid">
-        <Card
-          title="Conversion Trend"
-          subtitle="Attributed value across days"
-          right={<Chip tone="blue">Weekly</Chip>}
-        >
-          <ConversionTrend data={trendData} loading={loading} />
-        </Card>
+      {/* MAIN GRID */}
+      <div className="mainGrid">
+        {/* LEFT: Bar Chart */}
+        <div className="card premium">
+          <div className="cardHead">
+            <div>
+              <div className="cardTitle">Traffic Trend (All Platforms)</div>
+              <div className="cardSub">Vertical grouped bars: GA4, Meta, TikTok, Snap</div>
+            </div>
+            <span className="pill blue">Traffic</span>
+          </div>
+          <div className="cardBody">
+            <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} />
+          </div>
+        </div>
 
-        <Card
-          title="Platform Distribution"
-          subtitle="Contribution by source"
-          right={<Chip tone="cyan">Sources</Chip>}
-        >
-          <PlatformDistribution data={platformData} loading={loading} />
-        </Card>
-      </section>
+        {/* RIGHT: Platform Distribution (FIXED ALIGNMENT) */}
+        <div className="card">
+          <div className="cardHead">
+            <div>
+              <div className="cardTitle">Platform Distribution</div>
+              <div className="cardSub">Animated mix of traffic by platform</div>
+            </div>
+            <span className="pill cyan">Sources</span>
+          </div>
 
-      {/* ✅ INSIGHTS */}
-      <section className="insightsGrid">
-        <Insight
-          loading={loading}
-          title="Top Driver"
-          value="GA4"
-          note="Highest contribution this period"
-          tone="green"
-          tag="Healthy"
-        />
-        <Insight
-          loading={loading}
-          title="Recommendation"
-          value="Scale Meta campaigns"
-          note="Meta conversions are increasing"
-          tone="blue"
-          tag="Action"
-        />
-        <Insight
-          loading={loading}
-          title="Alert Monitor"
-          value="Signal loss minimal"
-          note="Tracking is stable"
-          tone="red"
-          tag="Stable"
-        />
-      </section>
+          <div className="cardBody cardBodyDist">
+            {loading ? (
+              <>
+                <Skeleton height={240} />
+                <div style={{ marginTop: 12 }}>
+                  <Skeleton height={12} width="70%" />
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Skeleton height={12} width="55%" />
+                </div>
+              </>
+            ) : (
+              <AnimatedDonutDistribution
+                items={platformDistribution}
+                centerTitle="Total Traffic"
+                centerValue={formatMoney(totalTraffic)}
+              />
+            )}
+          </div>
+        </div>
+      </div>
 
-      {/* ✅ INLINE THEME CSS */}
-      <style>{`
-        :root{
-          --p:#191C24;
-          --a:#AF1763;
-          --b:#0D6EFD;
-          --g:#198754;
-          --c:#0DCAF0;
-          --r:#AB2E3C;
-          --y:#FFC107;
-        }
+      {/* PLATFORM CARDS */}
+      <div className="grid4">
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div className="pCard" key={i}>
+                <Skeleton height={10} width="45%" />
+                <div style={{ marginTop: 10 }}>
+                  <Skeleton height={18} width="65%" />
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <Skeleton height={48} />
+                </div>
+              </div>
+            ))
+          : platformCards.map((p) => <PlatformCard key={p.name} {...p} />)}
+      </div>
 
-        .dash{
-          width: 100%;
-          padding: 18px;
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-          background: radial-gradient(circle at 10% 0%, rgba(175,23,99,0.12), transparent 60%),
-                      radial-gradient(circle at 90% 10%, rgba(13,202,240,0.10), transparent 55%),
-                      #f3f4f6;
-        }
-
-        /* HERO */
-        .hero{
-          width: 100%;
-          display:flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          flex-wrap: wrap;
-          padding: 18px;
-          border-radius: 22px;
-          border: 1px solid rgba(15,23,42,0.10);
-          background:
-            radial-gradient(circle at 12% 20%, rgba(175,23,99,0.18), transparent 55%),
-            radial-gradient(circle at 92% 20%, rgba(13,202,240,0.14), transparent 55%),
-            linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.74));
-          box-shadow: 0 22px 70px rgba(15,23,42,0.12);
-          position: relative;
-          overflow: hidden;
-        }
-
-        .hero::before{
-          content:"";
-          position:absolute;
-          inset:0;
-          background-image: radial-gradient(rgba(25,28,36,0.12) 1px, transparent 1px);
-          background-size: 22px 22px;
-          opacity: 0.08;
-          pointer-events:none;
-        }
-
-        .heroLeft{ position: relative; z-index:1; }
-        .heroTitle{
-          margin-top: 10px;
-          font-size: 20px;
-          font-weight: 1100;
-          color: #0f172a;
-          letter-spacing: -0.4px;
-        }
-        .heroSub{
-          margin-top: 4px;
-          font-size: 13px;
-          font-weight: 800;
-          color: rgba(15,23,42,0.65);
-        }
-
-        .heroBadge{
-          display:inline-flex;
-          align-items:center;
-          gap: 10px;
-          padding: 9px 12px;
-          border-radius: 999px;
-          background: rgba(255,255,255,0.90);
-          border: 1px solid rgba(15,23,42,0.10);
-          font-size: 13px;
-          font-weight: 900;
-          color: rgba(15,23,42,0.75);
-          box-shadow: 0 12px 28px rgba(15,23,42,0.08);
-        }
-
-        .pulseDot{
-          width: 10px;
-          height: 10px;
-          border-radius: 999px;
-          background: var(--g);
-          box-shadow: 0 0 0 6px rgba(25,135,84,0.16);
-        }
-
-        .badgePill{
-          padding: 6px 10px;
-          border-radius: 999px;
-          font-size: 11px;
-          font-weight: 950;
-          color: #0b3d1f;
-          background: rgba(25,135,84,0.14);
-          border: 1px solid rgba(25,135,84,0.22);
-        }
-
-        .heroRight{
-          position: relative;
-          z-index:1;
-          display:flex;
-          gap: 10px;
-          align-items:center;
-        }
-
-        /* Buttons */
-        .btn{
-          border:0;
-          cursor:pointer;
-          padding: 10px 14px;
-          border-radius: 14px;
-          font-weight: 950;
-          font-size: 14px;
-          transition: transform 0.12s ease, box-shadow 0.12s ease;
-          position: relative;
-          overflow:hidden;
-          white-space: nowrap;
-        }
-        .btn:hover{ transform: translateY(-1px); }
-
-        .btn.ghost{
-          background: rgba(255,255,255,0.92);
-          border: 1px solid rgba(15,23,42,0.10);
-          color: rgba(15,23,42,0.78);
-          box-shadow: 0 10px 24px rgba(15,23,42,0.06);
-        }
-        .btn.primary{
-          color:#fff;
-          background: linear-gradient(135deg, var(--a), var(--b));
-          box-shadow: 0 16px 38px rgba(175,23,99,0.20);
-        }
-        .shine{
-          position:absolute;
-          top:-60%;
-          left:-40%;
-          width:40%;
-          height:220%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
-          transform: rotate(25deg);
-          animation: shine 2.8s ease-in-out infinite;
-          pointer-events:none;
-        }
-        @keyframes shine{
-          0% { transform: translateX(-160%) rotate(25deg); opacity: 0; }
-          20%{ opacity:1; }
-          60%{ transform: translateX(260%) rotate(25deg); opacity: 0; }
-          100%{ opacity: 0; }
-        }
-
-        /* KPI */
-        .kpiGrid{
-          display:grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .kpiCard{
-          border-radius: 22px;
-          padding: 16px;
-          background: rgba(255,255,255,0.84);
-          border: 1px solid rgba(15,23,42,0.10);
-          box-shadow: 0 18px 55px rgba(15,23,42,0.12);
-          transition: transform 0.16s ease, box-shadow 0.16s ease;
-          position: relative;
-          overflow: hidden;
-        }
-        .kpiCard:hover{
-          transform: translateY(-3px);
-          box-shadow: 0 30px 85px rgba(15,23,42,0.16);
-        }
-
-        .kpiTop{
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap: 12px;
-        }
-        .kpiLabel{
-          font-size: 13px;
-          font-weight: 950;
-          color: rgba(15,23,42,0.65);
-        }
-        .kpiValue{
-          margin-top: 10px;
-          font-size: 28px;
-          font-weight: 1200;
-          letter-spacing: -0.6px;
-          color: #0f172a;
-        }
-        .kpiFooter{
-          margin-top: 10px;
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap: 10px;
-        }
-        .kpiHint{
-          font-size: 12px;
-          font-weight: 850;
-          color: rgba(15,23,42,0.55);
-        }
-
-        .delta{
-          font-size: 12px;
-          font-weight: 1100;
-          padding: 7px 10px;
-          border-radius: 999px;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.72);
-        }
-        .delta.up{
-          background: rgba(25,135,84,0.14);
-          border-color: rgba(25,135,84,0.22);
-          color: #0b3d1f;
-        }
-        .delta.down{
-          background: rgba(171,46,60,0.14);
-          border-color: rgba(171,46,60,0.22);
-          color: #6b0d16;
-        }
-
-        .kpiIcon{
-          width: 44px;
-          height: 44px;
-          border-radius: 18px;
-          display:grid;
-          place-items:center;
-          font-size: 18px;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(25,28,36,0.04);
-        }
-
-        .kpiIcon.blue{ background: rgba(13,110,253,0.14); border-color: rgba(13,110,253,0.22); }
-        .kpiIcon.green{ background: rgba(25,135,84,0.14); border-color: rgba(25,135,84,0.22); }
-        .kpiIcon.cyan{ background: rgba(13,202,240,0.14); border-color: rgba(13,202,240,0.22); }
-        .kpiIcon.red{ background: rgba(171,46,60,0.14); border-color: rgba(171,46,60,0.22); }
-        .kpiIcon.yellow{ background: rgba(255,193,7,0.16); border-color: rgba(255,193,7,0.24); }
-
-        /* Charts */
-        .chartsGrid{
-          display:grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 14px;
-        }
-
-        .card{
-          border-radius: 22px;
-          padding: 14px;
-          background: rgba(255,255,255,0.72);
-          border: 1px solid rgba(15,23,42,0.10);
-          box-shadow: 0 14px 40px rgba(15,23,42,0.10);
-        }
-        .cardHead{
-          display:flex;
-          justify-content:space-between;
-          gap: 12px;
-          align-items:flex-start;
-          margin-bottom: 10px;
-        }
-        .cardTitle{
-          margin: 0;
-          font-size: 15px;
-          font-weight: 1150;
-          color: #0f172a;
-        }
-        .cardSub{
-          margin-top: 4px;
-          font-size: 12px;
-          font-weight: 850;
-          color: rgba(15,23,42,0.55);
-        }
-
-        /* Chips */
-        .chip{
-          padding: 7px 10px;
-          border-radius: 999px;
-          font-size: 12px;
-          font-weight: 1100;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.75);
-          color: rgba(15,23,42,0.70);
-          white-space: nowrap;
-        }
-        .chip.blue{ background: rgba(13,110,253,0.14); border-color: rgba(13,110,253,0.22); color:#083b8a; }
-        .chip.cyan{ background: rgba(13,202,240,0.14); border-color: rgba(13,202,240,0.22); color:#055a66; }
-
-        /* Insights */
-        .insightsGrid{
-          display:grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px;
-        }
-
-        .insight{
-          border-radius: 22px;
-          padding: 14px 16px;
-          background: rgba(255,255,255,0.74);
-          border: 1px solid rgba(15,23,42,0.10);
-          box-shadow: 0 14px 40px rgba(15,23,42,0.10);
-        }
-
-        .insTop{
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap: 10px;
-        }
-
-        .insTitle{
-          font-size: 12px;
-          font-weight: 950;
-          color: rgba(15,23,42,0.55);
-        }
-
-        .insValue{
-          margin-top: 10px;
-          font-size: 16px;
-          font-weight: 1150;
-          color: #0f172a;
-        }
-        .insNote{
-          margin-top: 6px;
-          font-size: 12px;
-          font-weight: 850;
-          color: rgba(15,23,42,0.55);
-        }
-
-        .tag{
-          padding: 6px 10px;
-          border-radius: 999px;
-          font-size: 11px;
-          font-weight: 1100;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.75);
-          color: rgba(15,23,42,0.70);
-        }
-        .tag.green{ background: rgba(25,135,84,0.14); border-color: rgba(25,135,84,0.22); color:#0b3d1f; }
-        .tag.blue{ background: rgba(13,110,253,0.14); border-color: rgba(13,110,253,0.22); color:#083b8a; }
-        .tag.red{ background: rgba(171,46,60,0.14); border-color: rgba(171,46,60,0.22); color:#6b0d16; }
-
-        /* Responsive */
-        @media (max-width: 1100px){
-          .kpiGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        @media (max-width: 980px){
-          .chartsGrid{ grid-template-columns: 1fr; }
-          .insightsGrid{ grid-template-columns: 1fr; }
-        }
-        @media (max-width: 560px){
-          .dash{ padding: 12px; }
-          .kpiGrid{ grid-template-columns: 1fr; }
-          .hero{ padding: 14px; }
-        }
-      `}</style>
+      <style>{css}</style>
     </div>
   );
 }
 
-/* KPI Card */
-function KPI({ label, value, hint, delta, icon, tone, glow }) {
+/* KPI */
+function KPI({ label, value, delta, icon, tone }) {
   const isUp = typeof delta === "number" ? delta >= 0 : true;
   const abs = typeof delta === "number" ? Math.abs(delta) : 0;
 
   return (
-    <div className="kpiCard" style={{ boxShadow: `0 18px 55px ${glow}` }}>
+    <div className={`kpi tone-${tone}`}>
       <div className="kpiTop">
         <div className="kpiLabel">{label}</div>
-        <div className={`kpiIcon ${tone}`}>{icon}</div>
+        <div className="kpiIcon">{icon}</div>
       </div>
 
       <div className="kpiValue">{value}</div>
 
-      <div className="kpiFooter">
-        <div className="kpiHint">{hint}</div>
+      <div className="kpiBottom">
         <div className={`delta ${isUp ? "up" : "down"}`}>
           {isUp ? "▲" : "▼"} {abs}%
         </div>
+        <div className="kpiHint">vs last period</div>
       </div>
     </div>
   );
 }
 
-/* Card wrapper */
-function Card({ title, subtitle, right, children }) {
+/* Platform Card */
+function PlatformCard({ name, desc, pill, tone, accent, stats }) {
   return (
-    <div className="card">
-      <div className="cardHead">
-        <div>
-          <p className="cardTitle">{title}</p>
-          <div className="cardSub">{subtitle}</div>
+    <div className="pCard">
+      <div className="pAccent" style={{ background: accent }} />
+      <div className="pBody">
+        <div className="pTop">
+          <div>
+            <div className="pName">{name}</div>
+            <div className="pDesc">{desc}</div>
+          </div>
+          <div className="pPill" style={{ color: tone, background: `${tone}12`, borderColor: `${tone}26` }}>
+            {pill}
+          </div>
         </div>
-        {right}
+
+        <div className="pStats">
+          <StatMini label="Forwarded" value={stats.forwarded} />
+          <StatMini label="Success" value={`${stats.successRate}%`} />
+          <StatMini label="Revenue" value={`SAR ${formatMoney(stats.revenue)}`} />
+          <StatMini label="Loss" value={`${stats.loss}%`} />
+        </div>
       </div>
-      {children}
     </div>
   );
 }
 
-function Chip({ tone, children }) {
-  return <span className={`chip ${tone}`}>{children}</span>;
+function StatMini({ label, value }) {
+  return (
+    <div className="mini">
+      <div className="miniLabel">{label}</div>
+      <div className="miniValue">{value}</div>
+    </div>
+  );
 }
 
-function Insight({ loading, title, value, note, tone, tag }) {
+/* Bar Chart */
+function GroupedBarChart({ labels = [], series = [] }) {
+  const [hover, setHover] = useState(null);
+
+  const W = 980, H = 300;
+  const PAD_X = 44, PAD_TOP = 20, PAD_BOTTOM = 40;
+
+  const max = Math.max(1, ...series.flatMap((s) => s.data || []));
+  const innerW = W - PAD_X * 2;
+  const innerH = H - PAD_TOP - PAD_BOTTOM;
+
+  const groups = labels.length || 1;
+  const groupW = innerW / groups;
+
+  const barCount = Math.max(1, series.length);
+  const gap = Math.max(6, Math.floor(groupW * 0.06));
+  const barW = Math.max(10, Math.floor((groupW - gap * (barCount + 1)) / barCount));
+
+  const x0 = (i) => PAD_X + i * groupW;
+  const barX = (i, j) => x0(i) + gap + j * (barW + gap);
+
+  const y = (v) => PAD_TOP + (1 - v / max) * innerH;
+  const barH = (v) => PAD_TOP + innerH - y(v);
+
+  const onMove = (evt) => {
+    const rect = evt.currentTarget.getBoundingClientRect();
+    const mx = ((evt.clientX - rect.left) / rect.width) * W;
+    const idx = Math.min(labels.length - 1, Math.max(0, Math.floor((mx - PAD_X) / groupW)));
+    setHover({ idx });
+  };
+  const onLeave = () => setHover(null);
+
   return (
-    <div className="insight">
-      {loading ? (
-        <>
-          <Skeleton height={12} width="45%" />
-          <div style={{ marginTop: 10 }}>
-            <Skeleton height={18} width="70%" />
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <Skeleton height={12} width="60%" />
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="insTop">
-            <div className="insTitle">{title}</div>
-            <div className={`tag ${tone}`}>{tag}</div>
-          </div>
-          <div className="insValue">{value}</div>
-          <div className="insNote">{note}</div>
-        </>
-      )}
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width="100%"
+      height="300"
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+      style={{ display: "block" }}
+    >
+      {labels.map((lb, i) => (
+        <text
+          key={lb}
+          x={x0(i) + groupW / 2}
+          y={H - 12}
+          textAnchor="middle"
+          fontSize="12"
+          fill="rgba(15,23,42,0.55)"
+          fontWeight="900"
+        >
+          {lb}
+        </text>
+      ))}
+
+      {labels.map((_, i) => (
+        <g key={i}>
+          {series.map((s, j) => {
+            const v = s.data?.[i] ?? 0;
+            const bx = barX(i, j);
+            const by = y(v);
+            const bh = barH(v);
+
+            return (
+              <rect
+                key={`${i}-${j}`}
+                x={bx}
+                y={by}
+                width={barW}
+                height={bh}
+                rx="10"
+                fill={s.color}
+                opacity={hover && hover.idx !== i ? 0.45 : 0.95}
+              />
+            );
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ✅ FIXED + ALIGNED Donut Distribution */
+function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
+  const [active, setActive] = useState(null);
+
+  const total = Math.max(1, items.reduce((s, it) => s + (Number(it.value) || 0), 0));
+  const arcs = items.map((it) => ({ ...it, value: Number(it.value) || 0 }));
+  const size = 230;
+  const stroke = 18;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+
+  let offset = 0;
+  const slices = arcs.map((it) => {
+    const pct = it.value / total;
+    const len = pct * c;
+    const obj = { ...it, pct, len, offset };
+    offset += len;
+    return obj;
+  });
+
+  const activeSlice = typeof active === "number" ? slices[active] : null;
+
+  return (
+    <div className="donutWrap">
+      {/* LEFT */}
+      <div className="donutLeft">
+        <div className="donutStage">
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke="rgba(15,23,42,0.08)"
+              strokeWidth={stroke}
+            />
+
+            <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+              {slices.map((a, i) => (
+                <circle
+                  key={a.platform}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={r}
+                  fill="none"
+                  stroke={a.color}
+                  strokeWidth={stroke}
+                  strokeLinecap="round"
+                  strokeDasharray={`${a.len} ${c - a.len}`}
+                  strokeDashoffset={-a.offset}
+                  className="donutArc"
+                  style={{ opacity: active === null || active === i ? 1 : 0.35 }}
+                  onMouseEnter={() => setActive(i)}
+                  onMouseLeave={() => setActive(null)}
+                />
+              ))}
+            </g>
+
+            <foreignObject x="52" y="78" width="126" height="90">
+              <div className="donutCenter">
+                <div className="donutTitle">{centerTitle}</div>
+                <div className="donutValue">{centerValue}</div>
+                {activeSlice ? (
+                  <div className="donutActive">
+                    <span className="dot" style={{ background: activeSlice.color }} />
+                    {activeSlice.platform}: <b>{Math.round(activeSlice.pct * 100)}%</b>
+                  </div>
+                ) : (
+                  <div className="donutActive muted">Hover a slice</div>
+                )}
+              </div>
+            </foreignObject>
+          </svg>
+        </div>
+      </div>
+
+      {/* RIGHT */}
+      <div className="donutRight">
+        <div className="donutLegend">
+          {slices.map((a, i) => (
+            <div
+              key={a.platform}
+              className="donutItem"
+              onMouseEnter={() => setActive(i)}
+              onMouseLeave={() => setActive(null)}
+            >
+              <span className="dot" style={{ background: a.color }} />
+              <div className="donutItemText">
+                <div className="donutItemName">{a.platform}</div>
+                <div className="donutItemSub">
+                  {formatMoney(a.value)} • <b>{Math.round(a.pct * 100)}%</b>
+                </div>
+              </div>
+              <div className="donutPill">{Math.round(a.pct * 100)}%</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -609,3 +452,176 @@ function formatMoney(n) {
     return n;
   }
 }
+
+/* ✅ IMPORTANT: alignment fixes are inside css below */
+const css = `
+:root{
+  --a:#AF1763;
+  --b:#0D6EFD;
+  --g:#198754;
+  --c:#0DCAF0;
+  --y:#FFC107;
+}
+
+.dash{
+  width:100%;
+  padding:18px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(175,23,99,0.12), transparent 60%),
+    radial-gradient(circle at 90% 10%, rgba(13,202,240,0.12), transparent 55%),
+    #f3f4f6;
+}
+
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.brandArea{display:flex;align-items:center;gap:10px;}
+.logoBubble{width:44px;height:44px;border-radius:16px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--a),var(--b));font-weight:1200;}
+.brandTitle{font-size:16px;font-weight:1100;color:#0f172a;}
+.brandSub{margin-top:2px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.topbarRight{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+.storeChip{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:999px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);font-size:12px;font-weight:950;color:rgba(15,23,42,0.72);}
+.dotLive{width:10px;height:10px;border-radius:999px;background:var(--g);box-shadow:0 0 0 6px rgba(25,135,84,0.14);}
+.rangeChip{padding:10px 12px;border-radius:999px;background:rgba(13,202,240,0.12);border:1px solid rgba(13,202,240,0.22);font-size:12px;font-weight:950;color:#055a66;}
+
+.btn{border:0;cursor:pointer;padding:10px 14px;border-radius:14px;font-weight:950;font-size:14px;position:relative;overflow:hidden;white-space:nowrap;}
+.btn.ghost{background:rgba(255,255,255,0.92);border:1px solid rgba(15,23,42,0.10);color:rgba(15,23,42,0.78);}
+.btn.primary{color:#fff;background:linear-gradient(135deg,var(--a),var(--b));}
+.shine{position:absolute;top:-60%;left:-40%;width:40%;height:220%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.35),transparent);transform:rotate(25deg);animation:shine 2.8s ease-in-out infinite;}
+@keyframes shine{0%{transform:translateX(-160%) rotate(25deg);opacity:0;}20%{opacity:1;}60%{transform:translateX(260%) rotate(25deg);opacity:0;}100%{opacity:0;}}
+
+.heroStrip{display:flex;gap:14px;flex-wrap:wrap;padding:16px;border-radius:22px;border:1px solid rgba(15,23,42,0.10);background:linear-gradient(180deg,rgba(255,255,255,0.94),rgba(255,255,255,0.74));}
+.heroLeft{flex:1;min-width:260px;}
+.heroRight{width:280px;max-width:100%;}
+.heroBadge{display:inline-flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);font-size:13px;font-weight:900;}
+.pulseDot{width:10px;height:10px;border-radius:999px;background:var(--g);box-shadow:0 0 0 6px rgba(25,135,84,0.16);}
+.badgePill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:950;background:rgba(25,135,84,0.14);border:1px solid rgba(25,135,84,0.22);color:#0b3d1f;}
+.heroTitle{margin-top:10px;font-size:20px;font-weight:1100;color:#0f172a;}
+.heroSub{margin-top:4px;font-size:13px;font-weight:850;color:rgba(15,23,42,0.62);}
+
+.healthCard{height:100%;border-radius:18px;padding:14px;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.82);display:flex;flex-direction:column;justify-content:space-between;}
+.healthTop{display:flex;gap:10px;}
+.healthIcon{width:40px;height:40px;border-radius:16px;display:grid;place-items:center;background:rgba(13,110,253,0.12);border:1px solid rgba(13,110,253,0.22);}
+.healthTitle{font-size:13px;font-weight:1100;color:#0f172a;}
+.healthSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.healthPill{padding:8px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);}
+.healthPill.ok{background:rgba(25,135,84,0.14);border-color:rgba(25,135,84,0.22);color:#0b3d1f;}
+
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+@media (max-width:1100px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:560px){.dash{padding:12px;}.grid4{grid-template-columns:1fr;}}
+
+/* ✅ MAIN ALIGN FIX */
+.mainGrid{
+  display:grid;
+  grid-template-columns: 2fr 1fr;
+  gap:14px;
+  align-items: stretch;
+}
+@media (max-width:980px){.mainGrid{grid-template-columns:1fr;}}
+
+.card{
+  border-radius:22px;
+  padding:14px;
+  background:rgba(255,255,255,0.86);
+  border:1px solid rgba(15,23,42,0.10);
+  display:flex;
+  flex-direction:column;     /* ✅ makes head + body align */
+}
+.cardBody{
+  flex:1;                    /* ✅ stretch body to align height */
+  padding-top:10px;
+  min-height: 320px;         /* ✅ ensures right card doesn't collapse */
+}
+.cardBodyDist{
+  display:flex;
+  align-items:center;        /* ✅ vertical align donut nicely */
+  justify-content:center;    /* ✅ center everything */
+}
+.cardHead{display:flex;justify-content:space-between;gap:12px;}
+.cardTitle{font-size:15px;font-weight:1150;color:#0f172a;}
+.cardSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.card.premium{background:rgba(255,255,255,0.90);}
+
+.pill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);}
+.pill.blue{background:rgba(13,110,253,0.14);border-color:rgba(13,110,253,0.22);color:#083b8a;}
+.pill.cyan{background:rgba(13,202,240,0.14);border-color:rgba(13,202,240,0.22);color:#055a66;}
+
+/* KPI */
+.kpi{border-radius:22px;padding:16px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);}
+.kpiTop{display:flex;justify-content:space-between;align-items:center;}
+.kpiLabel{font-size:13px;font-weight:950;color:rgba(15,23,42,0.65);}
+.kpiIcon{width:44px;height:44px;border-radius:18px;display:grid;place-items:center;background:rgba(15,23,42,0.05);}
+.kpiValue{margin-top:10px;font-size:28px;font-weight:1200;color:#0f172a;}
+.kpiBottom{margin-top:10px;display:flex;justify-content:space-between;align-items:center;}
+.kpiHint{font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.delta{font-size:12px;font-weight:1100;padding:7px 10px;border-radius:999px;border:1px solid rgba(15,23,42,0.10);}
+.delta.up{background:rgba(25,135,84,0.14);border-color:rgba(25,135,84,0.22);color:#0b3d1f;}
+.delta.down{background:rgba(171,46,60,0.14);border-color:rgba(171,46,60,0.22);color:#6b0d16;}
+
+/* ✅ Donut alignment */
+.donutWrap{
+  width:100%;
+  display:flex;
+  gap:12px;
+  align-items:center;
+  justify-content:center;
+}
+.donutLeft{
+  flex: 0 0 240px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.donutRight{
+  flex:1;
+  min-width: 0;
+  display:flex;
+  justify-content:center;
+}
+@media (max-width:980px){
+  .donutWrap{ flex-direction:column; }
+  .donutLeft{ flex: 0 0 auto; }
+  .donutRight{ width:100%; }
+}
+
+.donutStage{display:grid;place-items:center;}
+.donutArc{transform-origin:50% 50%;animation:donutIn 900ms cubic-bezier(.2,.9,.2,1) both;}
+@keyframes donutIn{from{stroke-dasharray:0 9999;opacity:0.2;}to{opacity:1;}}
+.donutCenter{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;}
+.donutTitle{font-size:12px;font-weight:950;color:rgba(15,23,42,0.55);}
+.donutValue{font-size:16px;font-weight:1200;color:#0f172a;}
+.donutActive{font-size:12px;font-weight:950;color:rgba(15,23,42,0.75);display:flex;align-items:center;gap:8px;}
+.donutActive.muted{color:rgba(15,23,42,0.45);}
+.dot{width:10px;height:10px;border-radius:999px;display:inline-block;}
+
+.donutLegend{
+  width:100%;
+  max-width: 320px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  max-height: 260px;      /* ✅ prevent overflow */
+  overflow:auto;          /* ✅ scroll if needed */
+  padding-right: 4px;
+}
+.donutItem{display:flex;align-items:center;gap:10px;padding:10px;border-radius:16px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
+.donutItemText{flex:1;}
+.donutItemName{font-size:13px;font-weight:1100;color:#0f172a;}
+.donutItemSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.donutPill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.75);color:rgba(15,23,42,0.75);}
+
+/* Platform cards (kept minimal) */
+.pCard{border-radius:22px;overflow:hidden;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.86);}
+.pAccent{height:6px;width:100%;}
+.pBody{padding:14px 16px 16px;}
+.pTop{display:flex;justify-content:space-between;gap:10px;}
+.pName{font-size:14px;font-weight:1100;color:#0f172a;}
+.pDesc{margin-top:3px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:1050;border:1px solid rgba(15,23,42,0.10);}
+.pStats{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mini{border-radius:16px;padding:10px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
+.miniLabel{font-size:11px;font-weight:950;color:rgba(15,23,42,0.55);}
+.miniValue{margin-top:6px;font-size:14px;font-weight:1150;color:#0f172a;}
+`;
