@@ -4,22 +4,50 @@ import { mapSallaOrderToGa4Purchase } from "../platforms/ga4/ga4.mapper.js";
 import { updateEventStatus } from "../datastore/events.repo.js";
 
 export async function dispatchGa4Event(req, event, rowid) {
-  const ga4 = await getGa4Settings(req, event.store_id);
-
-  if (!ga4) {
-    console.log("GA4 not enabled for store:", event.store_id);
+  if (event.type !== "order.created") {
+    await updateEventStatus(req, rowid, "skipped", { platform: "ga4" });
     return;
   }
 
-  if (event.type !== "order.created") return;
+  const ga4 = await getGa4Settings(req, event.store_id);
+  if (!ga4 || !ga4.enabled) {
+    await updateEventStatus(req, rowid, "skipped", { platform: "ga4" });
+    return;
+  }
 
-  const payload = mapSallaOrderToGa4Purchase(event);
+  const order = event.payload?.data; // your Salla webhook structure
+  if (!order) {
+    await updateEventStatus(req, rowid, "failed", {
+      platform: "ga4",
+      error: "Missing payload.data (order)"
+    });
+    return;
+  }
 
-  await sendGa4Event({
-    measurement_id: ga4.measurement_id,
-    api_secret: ga4.api_secret,
-    payload
-  });
+  try {
+    const payload = mapSallaOrderToGa4Purchase({
+      store_id: event.store_id,
+      external_id: event.external_id,
+      order
+    });
 
-  await updateEventStatus(req, rowid, "sent");
+    const resp = await sendGa4Event({
+      measurement_id: ga4.measurement_id,
+      api_secret: ga4.api_secret,
+      payload
+    });
+
+    await updateEventStatus(req, rowid, "sent", {
+      platform: "ga4",
+      http_status: resp?.status,
+      response: resp?.data
+    });
+  } catch (err) {
+    await updateEventStatus(req, rowid, "failed", {
+      platform: "ga4",
+      http_status: err?.http_status,
+      error: err?.message,
+      response: err?.response_body
+    });
+  }
 }
