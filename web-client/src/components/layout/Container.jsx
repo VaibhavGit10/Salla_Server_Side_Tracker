@@ -1,15 +1,14 @@
 export default function Container({ title, subtitle, children }) {
   return (
-    <main style={{ padding: "32px", flex: 1 }}>
-      <header style={{ marginBottom: "24px" }}>
-        <h1 style={{ margin: 0, fontSize: "24px" }}>{title}</h1>
-        {subtitle && (
-          <p style={{ margin: "6px 0 0", color: "#9ca3af" }}>
-            {subtitle}
-          </p>
-        )}
+    <main className="container">
+      <header className="containerHeader">
+        <div className="containerTitleWrap">
+          <h1 className="containerTitle">{title}</h1>
+          {subtitle ? <p className="containerSubtitle">{subtitle}</p> : null}
+        </div>
       </header>
-      {children}
+
+      <section className="containerBody">{children}</section>
     </main>
   );
 }
