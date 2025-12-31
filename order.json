@@ -1,0 +1,13 @@
+{
+  "event": "order.created",
+  "merchant": "myteststore",
+  "data": {
+    "id": "ORDER_1001",
+    "amounts": {
+      "total": {
+        "amount": 120.5,
+        "currency": "SAR"
+      }
+    }
+  }
+}

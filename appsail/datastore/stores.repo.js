@@ -1,31 +1,28 @@
 import { getDatastore, getZCQL } from "./client.js";
 import { encrypt } from "../security/encryption.js";
+import { toCatalystDateTime, unixSecondsToCatalystDateTime } from "../utils/datetime.js";
 
 const TABLE = "stores";
 
-/**
- * ZCQL string escape to avoid breaking queries when store_id contains quotes.
- * (ZCQL doesn't support parameterized queries in the SDK style we use here.)
- */
+/** ZCQL string escape */
 function escZcql(str) {
   return String(str || "").replace(/'/g, "''");
 }
 
-/**
- * Extract store_id consistently from Salla webhook payload.
- */
+/** Extract store_id consistently from Salla webhook payload */
+/** Extract store_id consistently from Salla webhook payload */
 function extractStoreIdFromBody(body) {
-  return String(body?.merchant || body?.store_id || "");
+  const id =
+    body?.merchant ??
+    body?.store_id ??
+    body?.data?.store?.id ??
+    body?.data?.store_id ??
+    body?.data?.merchant ??
+    "";
+
+  return String(id).trim();
 }
 
-/**
- * Convert unix seconds -> ISO datetime
- */
-function unixToIso(unixSeconds) {
-  const n = Number(unixSeconds);
-  if (!Number.isFinite(n)) return null;
-  return new Date(n * 1000).toISOString();
-}
 
 export async function getStore(req, store_id) {
   if (!store_id) return null;
@@ -45,8 +42,8 @@ export async function getStore(req, store_id) {
 }
 
 /**
- * Generic upsert.
- * Use this if caller already prepared encrypted tokens + fields.
+ * Generic upsert. Caller provides already-encrypted tokens.
+ * IMPORTANT: does not overwrite installed_at on update.
  */
 export async function upsertStore(req, data) {
   if (!data?.store_id) throw new Error("store_id is required");
@@ -56,41 +53,33 @@ export async function upsertStore(req, data) {
 
   const payload = {
     store_id: String(data.store_id),
-
-    // status lifecycle: authorized/installed/active/uninstalled
     status: data.status || "active",
 
-    // IMPORTANT: keep these as passed-in (already encrypted by caller)
     access_token_enc: data.access_token_enc,
     refresh_token_enc: data.refresh_token_enc || null,
 
     scope: data.scope || null,
+
+    // ✅ MUST be Catalyst DateTime string if column type is datetime
     token_expires_at: data.token_expires_at || null,
 
-    updated_at: new Date().toISOString()
+    updated_at: toCatalystDateTime(new Date())
   };
 
   if (existing?.ROWID) {
-    // Do NOT overwrite installed_at on updates
     await table.updateRow({ ROWID: existing.ROWID, ...payload });
     return { ...existing, ...payload };
   }
 
-  // On insert, set installed_at
   return await table.insertRow({
     ...payload,
-    installed_at: data.installed_at || new Date().toISOString()
+    installed_at: data.installed_at || toCatalystDateTime(new Date())
   });
 }
 
 /**
- * Easy Mode: Handle app.store.authorize payload directly.
- * This is the production source of tokens for marketplace apps.
- *
- * Expected body shape (Salla):
- * - event: "app.store.authorize"
- * - merchant (store_id)
- * - data: { access_token, refresh_token, expires, scopes/scope }
+ * Production install: Handle app.store.authorize payload.
+ * Sets store to ACTIVE because tokens exist and webhook events should be accepted.
  */
 export async function upsertStoreAuth(req, body) {
   const store_id = extractStoreIdFromBody(body);
@@ -99,28 +88,33 @@ export async function upsertStoreAuth(req, body) {
   if (!store_id) throw new Error("Missing store_id/merchant in authorize payload");
   if (!d.access_token) throw new Error("Missing data.access_token in authorize payload");
 
-  // scopes may be array or string depending on Salla payload variant
   const scope =
-    Array.isArray(d.scopes) ? d.scopes.join(" ") :
-    (d.scope ? String(d.scope) : (d.scopes ? String(d.scopes) : null));
+    Array.isArray(d.scopes)
+      ? d.scopes.join(" ")
+      : (d.scope ? String(d.scope) : (d.scopes ? String(d.scopes) : null));
 
-  const token_expires_at = d.expires ? unixToIso(d.expires) : null;
+  // ✅ FIX: unix seconds -> "YYYY-MM-DD HH:mm:ss"
+  const token_expires_at = d.expires ? unixSecondsToCatalystDateTime(d.expires) : null;
 
-  // Encrypt here so caller stays clean
   return await upsertStore(req, {
     store_id,
-    status: "authorized",
+    status: "active",
     access_token_enc: encrypt(d.access_token),
     refresh_token_enc: d.refresh_token ? encrypt(d.refresh_token) : null,
     scope,
     token_expires_at,
-    installed_at: new Date().toISOString()
+    installed_at: toCatalystDateTime(new Date())
   });
 }
 
 /**
- * Mark store installed. Does NOT touch tokens.
- * (Tokens come from app.store.authorize.)
+ * Optional lifecycle marker (tokens are NOT updated here).
+ * If row doesn't exist, create minimal record.
+ */
+/**
+ * Lifecycle marker (tokens are NOT updated here).
+ * Salla demo stores will send order webhooks only after install, but authorize may come later.
+ * To avoid 403, we mark store as ACTIVE on install/update events.
  */
 export async function markStoreInstalled(req, bodyOrStoreId) {
   const store_id =
@@ -136,27 +130,30 @@ export async function markStoreInstalled(req, bodyOrStoreId) {
   if (existing?.ROWID) {
     await table.updateRow({
       ROWID: existing.ROWID,
-      status: "installed",
-      updated_at: new Date().toISOString()
+      status: "active", // ✅ important
+      updated_at: toCatalystDateTime(new Date())
     });
     return true;
   }
 
-  // If installed arrives before authorize (rare), create a minimal row.
+  // If installed arrives before authorize, create minimal row.
+  // access_token_enc is mandatory → keep placeholder.
   await table.insertRow({
     store_id,
-    status: "installed",
-    access_token_enc: "PENDING_AUTHORIZE",
-    updated_at: new Date().toISOString(),
-    installed_at: new Date().toISOString()
+    status: "active", // ✅ important
+    access_token_enc: "__pending_authorize__",
+    refresh_token_enc: null,
+    scope: null,
+    token_expires_at: null,
+    updated_at: toCatalystDateTime(new Date()),
+    installed_at: toCatalystDateTime(new Date())
   });
 
   return true;
 }
 
-/**
- * Mark store uninstalled. Accepts store_id string OR webhook body.
- */
+
+/** Mark store uninstalled */
 export async function markStoreUninstalled(req, bodyOrStoreId) {
   const store_id =
     typeof bodyOrStoreId === "string"
@@ -172,7 +169,7 @@ export async function markStoreUninstalled(req, bodyOrStoreId) {
   await table.updateRow({
     ROWID: existing.ROWID,
     status: "uninstalled",
-    updated_at: new Date().toISOString()
+    updated_at: toCatalystDateTime(new Date())
   });
 
   return true;

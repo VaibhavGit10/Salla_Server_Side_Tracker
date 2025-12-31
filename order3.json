@@ -1,0 +1,8 @@
+{
+  "event": "order.created",
+  "merchant": "demo_store_123",
+  "data": {
+    "id": "ORDER_1003",
+    "amounts": { "total": { "amount": 99.99, "currency": "SAR" } }
+  }
+}

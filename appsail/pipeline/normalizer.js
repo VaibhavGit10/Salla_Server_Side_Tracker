@@ -13,16 +13,34 @@ function sha1(input) {
 }
 
 /**
+ * Salla store identifier is not always consistent across events.
+ * We normalize store_id using best-known locations in priority order.
+ */
+function extractStoreId(body) {
+  const id =
+    body?.merchant ??
+    body?.store_id ??
+    body?.data?.store?.id ??
+    body?.data?.store_id ??
+    body?.data?.merchant ??
+    "";
+
+  return String(id).trim();
+}
+
+/**
  * Normalize ANY Salla webhook into our internal event model.
- * - store_id extracted consistently
- * - external_id is stable (critical for idempotency)
- * - payload remains an OBJECT in memory (stringified only at DB layer)
+ *
+ * BRD alignment:
+ * - Multi-tenant: store_id always normalized (trim)
+ * - Idempotency: external_id stable (business id preferred)
+ * - Payload stays object in memory (stringify only at DB layer)
  */
 export function normalizeEvent(body) {
-  const eventType = String(body?.event || "");
-  const storeId = String(body?.store_id ?? body?.merchant ?? "");
+  const eventType = String(body?.event || "").trim();
+  const storeId = extractStoreId(body);
 
-  // Try to pick a stable business identifier first (order id etc.)
+  // Prefer stable business identifiers (order id etc.)
   const dataId =
     body?.data?.id ??
     body?.data?.order_id ??
@@ -30,21 +48,24 @@ export function normalizeEvent(body) {
     body?.data?.shipment?.id ??
     null;
 
-  // Build a stable dedupe key
-  // Prefer store+event+dataId; otherwise hash a reduced stable subset
+  /**
+   * external_id must be stable per event instance.
+   * Since DB dedupe key is (store_id, external_id, type),
+   * external_id should NOT redundantly include store/type.
+   */
   let external_id;
 
-  if (dataId) {
-    external_id = `${eventType}:${storeId}:${String(dataId)}`;
+  if (dataId !== null && dataId !== undefined && String(dataId).trim() !== "") {
+    external_id = String(dataId).trim();
   } else {
-    // fallback stable subset (avoid hashing entire body if it may include volatile fields)
+    // fallback stable subset (avoid volatile fields)
     const fallback = {
-      event: eventType,
-      store_id: storeId,
-      merchant: body?.merchant ?? null,
+      event: eventType || null,
+      store_id: storeId || null,
       created_at: body?.created_at ?? body?.data?.created_at ?? null
     };
-    external_id = `${eventType}:${storeId}:${sha1(safeStableStringify(fallback))}`;
+
+    external_id = sha1(safeStableStringify(fallback));
   }
 
   return {
@@ -53,7 +74,7 @@ export function normalizeEvent(body) {
     external_id,
     source: "salla",
     type: eventType,
-    payload: body,              // ✅ keep object (not string)
+    payload: body, // ✅ keep object (DB layer stringifies)
     status: "RECEIVED",
     retries: 0,
     last_attempt_at: null

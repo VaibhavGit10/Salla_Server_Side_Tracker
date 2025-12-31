@@ -1,22 +1,33 @@
 import crypto from "crypto";
 
+function normalizeSignature(sig) {
+  if (!sig) return "";
+
+  return String(sig)
+    .replace(/^Bearer\s+/i, "")
+    .replace(/^sha256=/i, "")
+    .trim();
+}
+
 export function verifyWebhookSignature({ rawBody, signature, secret }) {
-  if (!secret || !signature || !rawBody) return false;
+  if (!rawBody || !signature || !secret) return false;
 
-  // Salla sends header "x-salla-signature"
-  // Sometimes providers prefix like "sha256=..."
-  const sig = signature.replace(/^sha256=/i, "").trim();
+  // rawBody MUST be Buffer (from express.json verify)
+  const buf = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody), "utf8");
 
-  // Assumption (matches common Salla pattern): HMAC-SHA256(secret, rawBody)
   const expected = crypto
     .createHmac("sha256", secret)
-    .update(rawBody)
+    .update(buf)
     .digest("hex");
 
-  // timing-safe compare
-  const a = Buffer.from(sig, "utf8");
-  const b = Buffer.from(expected, "utf8");
-  if (a.length !== b.length) return false;
+  const got = normalizeSignature(signature);
 
-  return crypto.timingSafeEqual(a, b);
+  // ✅ reject invalid formats early (prevents timingSafeEqual throw / mismatch)
+  if (!/^[a-f0-9]{64}$/i.test(got)) return false;
+
+  // ✅ timing-safe compare on Buffer (same length guaranteed now)
+  return crypto.timingSafeEqual(
+    Buffer.from(expected, "hex"),
+    Buffer.from(got, "hex")
+  );
 }
