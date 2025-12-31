@@ -4,6 +4,59 @@ import Skeleton from "../components/ui/Skeleton";
 import { fetchEventLogs } from "../api/logs.api";
 import { getStoreId } from "../utils/store";
 
+function safeParse(v) {
+  try {
+    return typeof v === "string" ? JSON.parse(v) : v;
+  } catch {
+    return v;
+  }
+}
+
+function formatRelativeTime(isoOrAny) {
+  const iso = String(isoOrAny || "");
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+
+  const diffMs = Date.now() - d.getTime();
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+function mapDbStatusToUi(s) {
+  const v = String(s || "").toLowerCase();
+  if (v === "sent") return "SUCCESS";
+  if (v === "failed") return "FAILED";
+  if (v === "skipped") return "SKIPPED";
+  if (v === "pending") return "PENDING";
+  return (s || "UNKNOWN").toString().toUpperCase();
+}
+
+function mapRowToLog(row) {
+  const payloadObj = safeParse(row.payload);
+  const order = payloadObj?.data;
+  const orderId = order?.id || row.external_id || "-";
+  const value = order?.total?.amount || order?.total || null;
+
+  return {
+    rowid: row.ROWID,
+    time: formatRelativeTime(row.CREATEDTIME || row.last_attempt_at),
+    platform: String(row.last_platform || "GA4").toUpperCase(),
+    type: row.type || "-",
+    order_id: String(orderId),
+    value: value != null ? `SAR ${Number(value)}` : "-",
+    status: mapDbStatusToUi(row.status),
+    payload: payloadObj,
+    last_error: row.last_error || "",
+    last_response: row.last_response || ""
+  };
+}
+
 export default function Logs() {
   const storeId = getStoreId();
 
@@ -17,29 +70,12 @@ export default function Logs() {
   useEffect(() => {
     setLoading(true);
     fetchEventLogs(storeId)
-      .then((data) => setEvents(Array.isArray(data) ? data : []))
-      .catch(() => {
-        setEvents([
-          {
-            time: "2 min ago",
-            platform: "GA4",
-            type: "purchase",
-            order_id: "ORDER_2001",
-            value: "SAR 299",
-            status: "SUCCESS",
-            payload: { order_id: "ORDER_2001", total: 299 }
-          },
-          {
-            time: "5 min ago",
-            platform: "Meta",
-            type: "purchase",
-            order_id: "ORDER_2000",
-            value: "SAR 199",
-            status: "FAILED",
-            payload: { error: "Invalid token" }
-          }
-        ]);
+      .then((resp) => {
+        const rows = resp?.data || [];
+        const mapped = Array.isArray(rows) ? rows.map(mapRowToLog) : [];
+        setEvents(mapped);
       })
+      .catch(() => setEvents([]))
       .finally(() => setLoading(false));
   }, [storeId]);
 
@@ -67,9 +103,7 @@ export default function Logs() {
         statusFilter === "ALL" ? true : status.toUpperCase() === statusFilter;
 
       const matchesPlatform =
-        platformFilter === "ALL"
-          ? true
-          : platform.toUpperCase() === platformFilter;
+        platformFilter === "ALL" ? true : platform.toUpperCase() === platformFilter;
 
       return matchesQuery && matchesStatus && matchesPlatform;
     });
@@ -113,7 +147,6 @@ export default function Logs() {
   return (
     <Container title="Event Logs" subtitle="Detailed delivery history of conversion events">
       <div className="logCard">
-        {/* Toolbar */}
         <div className="logToolbar">
           <div className="logSearch">
             <span className="searchIcon">⌕</span>
@@ -125,30 +158,20 @@ export default function Logs() {
             />
           </div>
 
-          <select
-            className="select"
-            value={platformFilter}
-            onChange={(e) => setPlatformFilter(e.target.value)}
-          >
+          <select className="select" value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)}>
             <option value="ALL">All Platforms</option>
             <option value="GA4">GA4</option>
-            <option value="META">Meta</option>
-            <option value="TIKTOK">TikTok</option>
-            <option value="SNAP">Snap</option>
           </select>
 
-          <select
-            className="select"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
+          <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="ALL">All Status</option>
             <option value="SUCCESS">SUCCESS</option>
             <option value="FAILED">FAILED</option>
+            <option value="SKIPPED">SKIPPED</option>
+            <option value="PENDING">PENDING</option>
           </select>
         </div>
 
-        {/* ✅ Table: NO blank space */}
         <div className="tableWrap">
           <table className="logTable">
             <thead>
@@ -179,14 +202,17 @@ export default function Logs() {
                     <td className="mono">{String(e.order_id || "-")}</td>
                     <td className="mono">{String(e.value || "-")}</td>
                     <td><StatusBadge status={e.status} /></td>
-
-                    {/* ✅ Payload shows a short preview (no layout breaking) */}
                     <td>
                       <details className="payload">
                         <summary className="payloadSummary">
                           {payloadPreview(e.payload)}
                         </summary>
                         <pre className="payloadPre">{safeJson(e.payload)}</pre>
+                        {(e.last_error || e.last_response) && (
+                          <pre className="payloadPre" style={{ marginTop: 10 }}>
+{`last_error: ${e.last_error || "-"}\nlast_response: ${e.last_response || "-"}`}
+                          </pre>
+                        )}
                       </details>
                     </td>
                   </tr>
@@ -204,204 +230,21 @@ export default function Logs() {
         </div>
       </div>
 
-      {/* ✅ move this CSS to App.css */}
-      <style>{`
-        .logCard{
-          width:100%;
-          background:#fff;
-          border:1px solid rgba(15,23,42,0.10);
-          border-radius:22px;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.10);
-          overflow:hidden;
-        }
-
-        .logToolbar{
-          display:grid;
-          grid-template-columns: 1.4fr 0.7fr 0.7fr;
-          gap:12px;
-          padding:14px;
-          border-bottom:1px solid rgba(15,23,42,0.06);
-          background:
-            radial-gradient(circle at 12% 20%, rgba(175,23,99,0.08), transparent 55%),
-            radial-gradient(circle at 92% 20%, rgba(13,202,240,0.08), transparent 55%);
-        }
-        @media (max-width: 860px){
-          .logToolbar{ grid-template-columns: 1fr; }
-        }
-
-        .logSearch{
-          display:flex;
-          align-items:center;
-          gap:10px;
-          padding:0 12px;
-          height:44px;
-          border-radius:16px;
-          border:1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.96);
-        }
-        .searchIcon{ color: rgba(17,24,39,0.55); font-weight:900; }
-        .searchInput{
-          flex:1;
-          border:0;
-          outline:none;
-          background:transparent;
-          color:#111827;
-          font-size:13px;
-          font-weight:800;
-        }
-        .searchInput::placeholder{ color: rgba(17,24,39,0.45); font-weight:700; }
-
-        .select{
-          height:44px;
-          border-radius:16px;
-          border:1px solid rgba(15,23,42,0.10);
-          padding:0 12px;
-          font-size:13px;
-          font-weight:900;
-          color:#111827;
-          background: rgba(255,255,255,0.96);
-          outline:none;
-        }
-
-        /* ✅ Key: prevent blank space by allowing natural sizing */
-        .tableWrap{
-          width:100%;
-          overflow-x:auto; /* only if needed on very small screens */
-        }
-
-        .logTable{
-          width:100%;
-          border-collapse: collapse;
-          table-layout: auto;     /* ✅ fills space naturally */
-        }
-
-        .logTable thead th{
-          text-align:left;
-          padding:12px 14px;
-          font-size:12px;
-          font-weight:1000;
-          color: rgba(17,24,39,0.72);
-          background:#fff;
-          border-bottom:1px solid rgba(15,23,42,0.06);
-          position: sticky;
-          top: 0;
-          z-index: 1;
-          white-space: nowrap;
-        }
-
-        .logTable tbody td{
-          padding:12px 14px;
-          border-bottom:1px solid rgba(15,23,42,0.06);
-          font-size:13px;
-          font-weight:800;
-          color:#111827;
-          vertical-align: middle;
-        }
-
-        .logTable tbody tr:hover td{
-          background: rgba(13,110,253,0.03);
-        }
-
-        /* Controlled widths only for small columns */
-        .colTime{ width: 110px; }
-        .colPlatform{ width: 120px; }
-        .colType{ width: 130px; }
-        .colOrder{ width: 170px; }
-        .colValue{ width: 120px; }
-        .colStatus{ width: 120px; }
-        .colPayload{ width: auto; } /* ✅ take remaining space */
-
-        .muted{ color: rgba(17,24,39,0.60); font-weight:800; }
-        .mono{
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-          font-weight: 900;
-          font-size: 12.5px;
-          white-space: nowrap;
-        }
-
-        .typePill{
-          display:inline-flex;
-          align-items:center;
-          padding:6px 10px;
-          border-radius:999px;
-          background: rgba(13,202,240,0.10);
-          border: 1px solid rgba(13,202,240,0.18);
-          color:#0DCAF0;
-          font-size:12px;
-          font-weight:1000;
-          text-transform: lowercase;
-          white-space: nowrap;
-        }
-
-        /* ✅ Payload preview stays single line and doesn't create empty space */
-        .payload{
-          max-width: 100%;
-        }
-
-        .payloadSummary{
-          cursor:pointer;
-          color:#0D6EFD;
-          font-weight:1000;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 100%;
-        }
-
-        .payloadPre{
-          margin-top:10px;
-          padding:10px 12px;
-          border-radius:14px;
-          border:1px solid rgba(15,23,42,0.10);
-          background: rgba(25, 28, 36, 0.04);
-          color:#111827;
-          max-height:220px;
-          overflow:auto;
-          font-size:12px;
-        }
-
-        .logFooter{
-          display:flex;
-          justify-content:space-between;
-          gap:12px;
-          padding:12px 14px;
-          background: rgba(25, 28, 36, 0.03);
-        }
-
-        .emptyInline{
-          padding:22px 12px;
-          text-align:center;
-          font-size:13px;
-          font-weight:900;
-          color: rgba(17,24,39,0.60);
-        }
-
-        .emptyState{ padding:34px 18px; text-align:center; }
-        .emptyIcon{ font-size:34px; }
-        .emptyTitle{ margin-top:10px; font-size:16px; font-weight:1100; color:#111827; }
-        .emptySub{
-          margin-top:6px;
-          font-size:13px;
-          font-weight:800;
-          color: rgba(17,24,39,0.62);
-          max-width:520px;
-          margin-left:auto;
-          margin-right:auto;
-        }
-      `}</style>
+      {/* keep your existing CSS + badges + utils below unchanged */}
+      {/* (StatusBadge update below) */}
     </Container>
   );
 }
 
 /* ---------- Badges ---------- */
-
 function StatusBadge({ status }) {
   const s = String(status || "").toUpperCase();
   const ok = s === "SUCCESS";
+  const skipped = s === "SKIPPED";
 
   return (
-    <span className={`st ${ok ? "ok" : "bad"}`}>
-      {ok ? "SUCCESS" : "FAILED"}
+    <span className={`st ${ok ? "ok" : skipped ? "skip" : "bad"}`}>
+      {s}
       <style>{`
         .st{
           display:inline-flex;
@@ -418,6 +261,11 @@ function StatusBadge({ status }) {
           border-color: rgba(25,135,84,0.20);
           color:#198754;
         }
+        .st.skip{
+          background: rgba(255,193,7,0.14);
+          border-color: rgba(255,193,7,0.22);
+          color:#B45309;
+        }
         .st.bad{
           background: rgba(171,46,60,0.12);
           border-color: rgba(171,46,60,0.20);
@@ -430,12 +278,7 @@ function StatusBadge({ status }) {
 
 function PlatformBadge({ platform }) {
   const p = String(platform || "").toUpperCase();
-  const cls =
-    p === "GA4" ? "ga4" :
-    p === "META" ? "meta" :
-    p === "TIKTOK" ? "tiktok" :
-    p === "SNAP" ? "snap" :
-    "default";
+  const cls = p === "GA4" ? "ga4" : "default";
 
   return (
     <span className={`pb ${cls}`}>
@@ -452,9 +295,6 @@ function PlatformBadge({ platform }) {
           white-space: nowrap;
         }
         .pb.ga4{ background: rgba(66,133,244,0.12); border-color: rgba(66,133,244,0.18); color:#4285F4; }
-        .pb.meta{ background: rgba(24,119,242,0.12); border-color: rgba(24,119,242,0.18); color:#1877F2; }
-        .pb.tiktok{ background: rgba(254,44,85,0.10); border-color: rgba(254,44,85,0.18); color:#FE2C55; }
-        .pb.snap{ background: rgba(255,193,7,0.14); border-color: rgba(255,193,7,0.20); color:#B45309; }
         .pb.default{ background: rgba(13,202,240,0.10); border-color: rgba(13,202,240,0.18); color:#0DCAF0; }
       `}</style>
     </span>

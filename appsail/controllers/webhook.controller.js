@@ -48,7 +48,10 @@ export async function handleSallaWebhook(req, res) {
     const signature = extractSallaSignature(req);
     const secret = process.env.SALLA_WEBHOOK_SECRET;
 
-    
+    // ✅ Fail-fast (prevents accidental “valid” checks on empty signature/secret)
+    if (!signature || !secret) {
+      return res.status(401).json({ error: "Invalid signature" });
+    }
 
     const isValid = verifyWebhookSignature({
       rawBody: req.rawBody, // IMPORTANT: must be the original raw body (Buffer/string)

@@ -8,7 +8,11 @@ function escZcql(str) {
 
 function normalizeBool(v) {
   if (typeof v === "boolean") return v;
-  if (typeof v === "string") return v.toLowerCase() === "true";
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") {
+    const s = v.toLowerCase().trim();
+    return s === "true" || s === "1";
+  }
   return !!v;
 }
 
@@ -17,8 +21,8 @@ export async function upsertGa4Settings(req, data) {
   const zcql = getZCQL(req);
 
   const store_id = String(data.store_id);
-  const measurement_id = String(data.measurement_id);
-  const api_secret = String(data.api_secret); // your column is "encrypted text" at DB level
+  const measurement_id = String(data.measurement_id ?? "");
+  const api_secret = String(data.api_secret ?? ""); // encrypted text column in DB
   const enabled = normalizeBool(data.enabled);
 
   const query = `

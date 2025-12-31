@@ -1,38 +1,74 @@
 import { useEffect, useMemo, useState } from "react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
+import { fetchDashboardSummary } from "../api/platforms.api";
 
 export default function Dashboard() {
   const storeId = getStoreId();
   const [loading, setLoading] = useState(true);
 
-  const summary = {
-    forwarded: 1280,
-    successRate: 93.4,
-    revenue: 18450,
-    signalLoss: 0.8,
-    forwardedDelta: 18,
-    successDelta: 2.5,
-    revenueDelta: 12.2,
-    signalLossDelta: -0.3
-  };
+  // ✅ backend-driven stats (defaults)
+  const [stats, setStats] = useState({
+    total: 0,
+    by_status: {}
+  });
 
+  useEffect(() => {
+    let mounted = true;
+
+    setLoading(true);
+    fetchDashboardSummary(storeId, 24)
+      .then((resp) => {
+        // resp: { ok:true, data:{ total, by_status, since } }
+        const data = resp?.data || resp; // defensive
+        if (mounted && data) {
+          setStats({
+            total: Number(data.total || 0),
+            by_status: data.by_status || {}
+          });
+        }
+      })
+      .catch(() => {
+        // keep defaults
+      })
+      .finally(() => mounted && setLoading(false));
+
+    return () => {
+      mounted = false;
+    };
+  }, [storeId]);
+
+  // ✅ derive KPI numbers from datastore statuses
+  const summary = useMemo(() => {
+    const by = stats.by_status || {};
+    const total = Number(stats.total || 0);
+    const sent = Number(by.sent || 0);
+    const failed = Number(by.failed || 0);
+    const skipped = Number(by.skipped || 0);
+    const pending = Number(by.pending || 0);
+
+    const delivered = sent + failed; // only attempted deliveries
+    const successRate = delivered > 0 ? (sent / delivered) * 100 : 0;
+
+    return {
+      total,
+      sent,
+      failed,
+      skipped,
+      pending,
+      successRate
+    };
+  }, [stats]);
+
+  // keep your existing demo visuals for now
   const platformDistribution = [
-    { platform: "GA4", value: 55, color: "#0D6EFD" },
-    { platform: "Meta", value: 20, color: "#1877F2" },
-    { platform: "TikTok", value: 15, color: "#FE2C55" },
-    { platform: "Snap", value: 10, color: "#FFC107" }
+    { platform: "GA4", value: 100, color: "#0D6EFD" }
   ];
 
-  const trafficTrend = {
-    labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    series: [
-      { name: "GA4", color: "#0D6EFD", data: [2200, 2500, 2100, 2800, 3200, 2900, 3500] },
-      { name: "Meta", color: "#1877F2", data: [900, 1100, 1200, 1000, 1400, 1350, 1500] },
-      { name: "TikTok", color: "#FE2C55", data: [420, 560, 610, 720, 780, 820, 900] },
-      { name: "Snap", color: "#FFC107", data: [210, 260, 240, 310, 330, 360, 410] }
-    ]
-  };
+  const trafficTrend = useMemo(() => ({
+  labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  series: [{ name: "GA4", color: "#0D6EFD", data: [0, 0, 0, 0, 0, 0, 0] }]
+}), []);
 
   const platformCards = [
     {
@@ -41,52 +77,24 @@ export default function Dashboard() {
       pill: "Tracking",
       tone: "#0D6EFD",
       accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)",
-      stats: { forwarded: 720, successRate: 95.1, revenue: 10200, loss: 0.4 }
-    },
-    {
-      name: "Meta",
-      desc: "Conversions API",
-      pill: "CAPI",
-      tone: "#1877F2",
-      accent: "linear-gradient(90deg,#1877F2,#42A5F5)",
-      stats: { forwarded: 340, successRate: 92.3, revenue: 5200, loss: 0.9 }
-    },
-    {
-      name: "TikTok",
-      desc: "Events API",
-      pill: "Events",
-      tone: "#FE2C55",
-      accent: "linear-gradient(90deg,#25F4EE,#000,#FE2C55)",
-      stats: { forwarded: 150, successRate: 89.6, revenue: 2050, loss: 1.4 }
-    },
-    {
-      name: "Snap",
-      desc: "Conversions API",
-      pill: "Pixel",
-      tone: "#FFC107",
-      accent: "linear-gradient(90deg,#FFFC00,#FFC107)",
-      stats: { forwarded: 70, successRate: 91.2, revenue: 1000, loss: 0.7 }
+      stats: {
+        forwarded: summary.total,
+        successRate: Number(summary.successRate.toFixed(1)),
+        revenue: 0,
+        loss: summary.total > 0 ? Number(((summary.skipped / summary.total) * 100).toFixed(1)) : 0
+      }
     }
   ];
 
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 650);
-    return () => clearTimeout(t);
-  }, []);
-
   const kpis = useMemo(
     () => [
-      { label: "Total Events", value: summary.forwarded, delta: summary.forwardedDelta, icon: "📤", tone: "blue" },
-      { label: "Success Rate", value: `${summary.successRate}%`, delta: summary.successDelta, icon: "✅", tone: "green" },
-      { label: "Attributed Value", value: `SAR ${formatMoney(summary.revenue)}`, delta: summary.revenueDelta, icon: "💰", tone: "pink" },
-      { label: "Signal Loss", value: `${summary.signalLoss}%`, delta: summary.signalLossDelta, icon: "📡", tone: "yellow" }
+      { label: "Total Events", value: summary.total, delta: 0, icon: "📤", tone: "blue" },
+      { label: "Sent", value: summary.sent, delta: 0, icon: "✅", tone: "green" },
+      { label: "Failed", value: summary.failed, delta: 0, icon: "❌", tone: "pink" },
+      { label: "Skipped", value: summary.skipped, delta: 0, icon: "⏭️", tone: "yellow" }
     ],
     [summary]
   );
-
-  const totalTraffic = useMemo(() => {
-    return trafficTrend.series.reduce((sum, s) => sum + (s.data || []).reduce((a, b) => a + b, 0), 0);
-  }, [trafficTrend]);
 
   return (
     <div className="dash">
@@ -105,7 +113,7 @@ export default function Dashboard() {
             <span className="dotLive" />
             Store: <b>{storeId}</b>
           </div>
-          <div className="rangeChip">Last 7 days</div>
+          <div className="rangeChip">Last 24 hours</div>
 
           <button className="btn ghost" type="button">Export</button>
           <button className="btn primary" type="button">
@@ -133,12 +141,11 @@ export default function Dashboard() {
 
       {/* MAIN GRID */}
       <div className="mainGrid">
-        {/* LEFT: Bar Chart */}
         <div className="card premium">
           <div className="cardHead">
             <div>
               <div className="cardTitle">Traffic Trend (All Platforms)</div>
-              <div className="cardSub">Vertical grouped bars: GA4, Meta, TikTok, Snap</div>
+              <div className="cardSub">MVP: GA4 only</div>
             </div>
             <span className="pill blue">Traffic</span>
           </div>
@@ -147,12 +154,11 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* RIGHT: Platform Distribution (FIXED ALIGNMENT) */}
         <div className="card">
           <div className="cardHead">
             <div>
               <div className="cardTitle">Platform Distribution</div>
-              <div className="cardSub">Animated mix of traffic by platform</div>
+              <div className="cardSub">MVP: GA4 only</div>
             </div>
             <span className="pill cyan">Sources</span>
           </div>
@@ -171,8 +177,8 @@ export default function Dashboard() {
             ) : (
               <AnimatedDonutDistribution
                 items={platformDistribution}
-                centerTitle="Total Traffic"
-                centerValue={formatMoney(totalTraffic)}
+                centerTitle="Total Events"
+                centerValue={formatMoney(summary.total)}
               />
             )}
           </div>

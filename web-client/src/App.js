@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 
 import Dashboard from "./pages/Dashboard";
@@ -9,7 +9,7 @@ import "./App.css";
 
 export default function App() {
   return (
-    <BrowserRouter basename="/app">
+    <HashRouter>
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />
@@ -17,6 +17,6 @@ export default function App() {
           <Route path="/logs" element={<Logs />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
