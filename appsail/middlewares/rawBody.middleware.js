@@ -1,5 +1,4 @@
-export function rawBodySaver(req, res, buf) {
-  if (buf && buf.length) {
-    req.rawBody = buf.toString("utf8");
-  }
+export function rawBodySaver(req, res, buf, encoding) {
+  // buf is a Buffer (this is what we need for HMAC)
+  req.rawBody = buf;
 }

@@ -1,32 +1,53 @@
-import { apiGet } from "./http";
+// web-client/src/api/platforms.api.js
+
+import { apiGet, apiPost } from "./http";
 
 /**
  * Dashboard summary
+ * -> GET /platforms/stats?store_id=...&hours=24
  */
-export function fetchDashboardSummary(storeId) {
-  return apiGet(`/dashboard/summary?store_id=${storeId}`);
+export function fetchDashboardSummary(storeId, hours = 24) {
+  return apiGet(
+    `/platforms/stats?store_id=${encodeURIComponent(storeId)}&hours=${encodeURIComponent(hours)}`
+  );
 }
 
 /**
- * Platform connection status
+ * Stores list for dropdown
+ * -> GET /platforms/stores
  */
-export function fetchPlatformStatus() {
-  return apiGet("/platforms/status");
+export function fetchStores() {
+  return apiGet("/platforms/stores");
 }
 
 /**
- * Validate GA4 connection
+ * Validate GA4 credentials
+ * -> POST /platforms/ga4/validate
  */
 export function validateGA4(payload) {
-  return fetch("/platforms/ga4/validate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  }).then(async res => {
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || "GA4 validation failed");
-    }
-    return res.json();
-  });
+  return apiPost("/platforms/ga4/validate", payload);
+}
+
+/**
+ * Save GA4 settings
+ * -> POST /platforms/ga4/connect
+ */
+export function saveGA4(payload) {
+  return apiPost("/platforms/ga4/connect", payload);
+}
+
+/**
+ * OPTIONAL: only use if backend exists:
+ * -> GET /platforms/ga4/:store_id
+ */
+export function fetchGA4(storeId) {
+  return apiGet(`/platforms/ga4/${encodeURIComponent(storeId)}`);
+}
+
+/**
+ * OPTIONAL retry: only use if backend exists:
+ * -> POST /platforms/ga4/retry/:rowid
+ */
+export function retryGA4(rowid) {
+  return apiPost(`/platforms/ga4/retry/${encodeURIComponent(rowid)}`, {});
 }

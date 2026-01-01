@@ -1,0 +1,10 @@
+{
+  "event": "app.store.authorize",
+  "merchant": "myteststore",
+  "data": {
+    "access_token": "dummy_access_token",
+    "refresh_token": "dummy_refresh_token",
+    "expires": 1769999999,
+    "scope": "orders.read"
+  }
+}
