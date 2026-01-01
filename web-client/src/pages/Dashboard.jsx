@@ -4,7 +4,9 @@ import { getStoreId } from "../utils/store";
 import { fetchDashboardSummary } from "../api/platforms.api";
 
 export default function Dashboard() {
-  const storeId = getStoreId();
+  // ✅ make storeId reactive (so dashboard updates when you change store in Connections)
+  const [storeId, setStoreIdState] = useState(() => getStoreId() || "");
+
   const [loading, setLoading] = useState(true);
 
   // ✅ backend-driven stats (defaults)
@@ -13,13 +15,49 @@ export default function Dashboard() {
     by_status: {}
   });
 
+  // ✅ listen for store changes (same-tab + cross-tab)
+  useEffect(() => {
+  const syncStore = () => setStoreIdState(getStoreId() || "");
+
+  // ✅ cross-tab updates
+  const onStorage = (e) => {
+    if (e.key === "selected_store_id") syncStore();
+  };
+
+  // ✅ same-tab updates
+  const onStoreChange = (e) => {
+    const next = e?.detail?.storeId;
+    if (next) setStoreIdState(String(next));
+    else syncStore();
+  };
+
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("store_id_changed", onStoreChange);
+
+  syncStore();
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("store_id_changed", onStoreChange);
+  };
+}, []);
+
+
+  // ✅ load stats ONLY when storeId is available
   useEffect(() => {
     let mounted = true;
 
+    // ✅ CRITICAL GUARD
+    if (!storeId || !String(storeId).trim()) {
+      setStats({ total: 0, by_status: {} });
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
+
     fetchDashboardSummary(storeId, 24)
       .then((resp) => {
-        // resp: { ok:true, data:{ total, by_status, since } }
         const data = resp?.data || resp; // defensive
         if (mounted && data) {
           setStats({
@@ -61,14 +99,15 @@ export default function Dashboard() {
   }, [stats]);
 
   // keep your existing demo visuals for now
-  const platformDistribution = [
-    { platform: "GA4", value: 100, color: "#0D6EFD" }
-  ];
+  const platformDistribution = [{ platform: "GA4", value: 100, color: "#0D6EFD" }];
 
-  const trafficTrend = useMemo(() => ({
-  labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-  series: [{ name: "GA4", color: "#0D6EFD", data: [0, 0, 0, 0, 0, 0, 0] }]
-}), []);
+  const trafficTrend = useMemo(
+    () => ({
+      labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      series: [{ name: "GA4", color: "#0D6EFD", data: [0, 0, 0, 0, 0, 0, 0] }]
+    }),
+    []
+  );
 
   const platformCards = [
     {
@@ -81,7 +120,10 @@ export default function Dashboard() {
         forwarded: summary.total,
         successRate: Number(summary.successRate.toFixed(1)),
         revenue: 0,
-        loss: summary.total > 0 ? Number(((summary.skipped / summary.total) * 100).toFixed(1)) : 0
+        loss:
+          summary.total > 0
+            ? Number(((summary.skipped / summary.total) * 100).toFixed(1))
+            : 0
       }
     }
   ];
@@ -111,7 +153,7 @@ export default function Dashboard() {
         <div className="topbarRight">
           <div className="storeChip">
             <span className="dotLive" />
-            Store: <b>{storeId}</b>
+            Store: <b>{storeId || "N/A"}</b>
           </div>
           <div className="rangeChip">Last 24 hours</div>
 
@@ -348,7 +390,6 @@ function GroupedBarChart({ labels = [], series = [] }) {
     </svg>
   );
 }
-
 /* ✅ FIXED + ALIGNED Donut Distribution */
 function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
   const [active, setActive] = useState(null);

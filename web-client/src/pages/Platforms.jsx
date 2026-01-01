@@ -1,38 +1,135 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Container from "../components/layout/Container";
-import { validateGA4 } from "../api/platforms.api";
-import { getStoreId } from "../utils/store";
+import { validateGA4, fetchStores, saveGA4, fetchGA4 } from "../api/platforms.api";
+import { getStoreId, setStoreId } from "../utils/store";
 
 export default function Platforms() {
-  const storeId = getStoreId();
+  // ✅ active store (URL -> localStorage -> backend /platforms/stores fallback)
+  const [activeStoreId, setActiveStoreId] = useState(() => getStoreId() || "");
 
-  // GA4
+  // ✅ stores dropdown
+  const [stores, setStores] = useState([]);
+  const [storesLoading, setStoresLoading] = useState(false);
+
+  // ✅ GA4
   const [ga4MeasurementId, setGa4MeasurementId] = useState("");
   const [ga4ApiSecret, setGa4ApiSecret] = useState("");
   const [ga4Status, setGa4Status] = useState("disconnected");
   const [ga4Loading, setGa4Loading] = useState(false);
   const [ga4Error, setGa4Error] = useState("");
 
-  // Meta
+  // ✅ Meta
   const [metaPixelId, setMetaPixelId] = useState("");
   const [metaAccessToken, setMetaAccessToken] = useState("");
   const [metaStatus, setMetaStatus] = useState("disconnected");
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState("");
 
-  // TikTok
+  // ✅ TikTok
   const [ttPixelId, setTtPixelId] = useState("");
   const [ttAccessToken, setTtAccessToken] = useState("");
   const [ttStatus, setTtStatus] = useState("disconnected");
   const [ttLoading, setTtLoading] = useState(false);
   const [ttError, setTtError] = useState("");
 
-  // Snap
+  // ✅ Snap
   const [snapPixelId, setSnapPixelId] = useState("");
   const [snapToken, setSnapToken] = useState("");
   const [snapStatus, setSnapStatus] = useState("disconnected");
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapError, setSnapError] = useState("");
+
+  /**
+   * ✅ Load stores from backend; choose default store if none in URL/localStorage
+   * IMPORTANT: do NOT rely on stale activeStoreId inside this effect.
+   */
+  useEffect(() => {
+    let mounted = true;
+    setStoresLoading(true);
+
+    fetchStores()
+      .then((resp) => {
+        if (!mounted) return;
+
+        const rows = Array.isArray(resp?.data) ? resp.data : [];
+        setStores(rows);
+
+        const current = getStoreId(); // ✅ always read latest (not stale state)
+
+        if (!current) {
+          const picked =
+            rows.find((s) => String(s.status || "").toLowerCase() === "active") || rows[0];
+
+          if (picked?.store_id) {
+            setStoreId(picked.store_id);
+            setActiveStoreId(String(picked.store_id));
+          }
+        } else {
+          // ensure state matches storage
+          setActiveStoreId(String(current));
+        }
+      })
+      .catch(() => {
+        // ignore
+      })
+      .finally(() => mounted && setStoresLoading(false));
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /**
+   * ✅ Prefill GA4 fields when activeStoreId changes
+   */
+  useEffect(() => {
+    if (!activeStoreId) return;
+
+    setGa4Error("");
+    setGa4Status("disconnected");
+
+    // reset GA4 fields on store switch (clean)
+    setGa4MeasurementId("");
+    setGa4ApiSecret("");
+
+    fetchGA4(activeStoreId)
+      .then((resp) => {
+        const row = resp?.data;
+        if (!row) return;
+
+        setGa4MeasurementId(String(row.measurement_id || ""));
+        setGa4ApiSecret(String(row.api_secret || ""));
+        setGa4Status(row.enabled ? "connected" : "disconnected");
+      })
+      .catch(() => {
+        // endpoint may not exist; ignore
+      });
+  }, [activeStoreId]);
+
+  const storeLabel = useMemo(() => {
+    if (!activeStoreId) return "N/A";
+    const found = (stores || []).find((s) => String(s.store_id) === String(activeStoreId));
+    return found ? `${found.store_id} (${found.status || "unknown"})` : activeStoreId;
+  }, [activeStoreId, stores]);
+
+  function onChangeStore(nextId) {
+    const id = String(nextId || "").trim();
+    if (!id) return;
+
+    setStoreId(id);          // ✅ persists + dispatches store_id_changed event (your store.js)
+    setActiveStoreId(id);    // ✅ updates dropdown immediately
+
+    // reset statuses for clarity on store switch
+    setGa4Status("disconnected");
+    setMetaStatus("disconnected");
+    setTtStatus("disconnected");
+    setSnapStatus("disconnected");
+
+    setGa4Error("");
+    setMetaError("");
+    setTtError("");
+    setSnapError("");
+  }
 
   async function connectGA4() {
     if (ga4Loading) return;
@@ -40,13 +137,25 @@ export default function Platforms() {
     setGa4Error("");
 
     try {
-      await validateGA4({
-        store_id: storeId,
+      if (!activeStoreId) throw new Error("Store ID not set yet.");
+
+      const payload = {
+        store_id: activeStoreId,
         measurement_id: ga4MeasurementId.trim(),
-        api_secret: ga4ApiSecret.trim()
-      });
+        api_secret: ga4ApiSecret.trim(),
+        enabled: true
+      };
+
+      if (!payload.measurement_id || !payload.api_secret) {
+        throw new Error("Please enter Measurement ID and API Secret");
+      }
+
+      await validateGA4(payload); // ✅ validate
+      await saveGA4(payload);     // ✅ persist (/platforms/ga4/connect)
+
       setGa4Status("connected");
     } catch (err) {
+      setGa4Status("disconnected");
       setGa4Error(err?.message || "Failed to connect GA4");
     } finally {
       setGa4Loading(false);
@@ -107,8 +216,34 @@ export default function Platforms() {
   return (
     <Container
       title="Platform Connections"
-      subtitle={`Connect platforms for server-side tracking • Store: ${storeId || "N/A"}`}
+      subtitle={`Connect platforms for server-side tracking • Store: ${storeLabel}`}
     >
+      {/* ✅ Store picker */}
+      <div className="storeRow">
+        <div className="storeLeft">
+          <div className="storeTitle">Active Store</div>
+          <div className="storeSub">Pick which Salla store you want to configure</div>
+        </div>
+
+        <div className="storeRight">
+          <select
+            className="storeSelect"
+            value={activeStoreId || ""}
+            onChange={(e) => onChangeStore(e.target.value)}
+            disabled={storesLoading || (stores || []).length === 0}
+          >
+            <option value="" disabled>
+              {storesLoading ? "Loading stores..." : "Select a store"}
+            </option>
+            {(stores || []).map((s) => (
+              <option key={String(s.store_id)} value={String(s.store_id)}>
+                {String(s.store_id)} • {String(s.status || "unknown")}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       <div className="pxGrid">
         {/* Google / GA4 */}
         <BrandCard
@@ -263,18 +398,42 @@ export default function Platforms() {
         </BrandCard>
       </div>
 
-      {/* ✅ Move styles to App.css */}
+      {/* ✅ styles unchanged (your original) */}
       <style>{`
-        /* Grid */
-        .pxGrid{
-          display:grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap:14px;
+        .storeRow{
           width:100%;
+          display:flex;
+          align-items:flex-end;
+          justify-content:space-between;
+          gap:12px;
+          padding: 12px 14px;
+          border-radius: 18px;
+          border: 1px solid rgba(15,23,42,0.08);
+          background: rgba(255,255,255,0.86);
+          margin-bottom: 14px;
         }
-        @media (max-width: 980px){
-          .pxGrid{ grid-template-columns: 1fr; }
+        .storeTitle{ font-size: 13px; font-weight: 1100; color:#111827; }
+        .storeSub{ margin-top: 4px; font-size: 12px; font-weight: 800; color: rgba(17,24,39,0.62); }
+        .storeRight{ min-width: 280px; max-width: 420px; width: 100%; }
+        .storeSelect{
+          width:100%;
+          height:44px;
+          border-radius:14px;
+          border: 1px solid rgba(15,23,42,0.10);
+          background: rgba(255,255,255,0.96);
+          color:#111827;
+          padding: 10px 12px;
+          outline:none;
+          font-weight:900;
         }
+        @media (max-width: 780px){
+          .storeRow{ flex-direction: column; align-items: stretch; }
+          .storeRight{ min-width: 0; max-width: none; }
+        }
+
+        /* Grid */
+        .pxGrid{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:14px; width:100%; }
+        @media (max-width: 980px){ .pxGrid{ grid-template-columns: 1fr; } }
 
         /* Card */
         .bCard{
@@ -286,11 +445,7 @@ export default function Platforms() {
           position:relative;
         }
 
-        /* Brand accent bar (top border) */
-        .bAccent{
-          height: 6px;
-          width: 100%;
-        }
+        .bAccent{ height: 6px; width: 100%; }
 
         .bHead{
           padding: 16px;
@@ -323,7 +478,6 @@ export default function Platforms() {
 
         .bBody{ padding:16px; }
 
-        /* Status badge */
         .bStatus{
           padding: 8px 10px;
           border-radius:999px;
@@ -345,23 +499,10 @@ export default function Platforms() {
           color:#AB2E3C;
         }
 
-        /* Fields */
-        .pxFormGrid{
-          display:grid;
-          grid-template-columns: 1fr 1fr;
-          gap:12px;
-        }
-        @media (max-width: 560px){
-          .pxFormGrid{ grid-template-columns: 1fr; }
-        }
+        .pxFormGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+        @media (max-width: 560px){ .pxFormGrid{ grid-template-columns: 1fr; } }
 
-        .fLabel{
-          display:block;
-          font-size:12px;
-          font-weight:1000;
-          color: rgba(17,24,39,0.75);
-          margin-bottom:6px;
-        }
+        .fLabel{ display:block; font-size:12px; font-weight:1000; color: rgba(17,24,39,0.75); margin-bottom:6px; }
 
         .fInput{
           width:100%;
@@ -380,7 +521,6 @@ export default function Platforms() {
           box-shadow: 0 0 0 6px rgba(13,110,253,0.10);
         }
 
-        /* Buttons */
         .pxBtn{
           width:100%;
           height:46px;
@@ -395,7 +535,6 @@ export default function Platforms() {
         .pxBtn:hover{ transform: translateY(-1px); }
         .pxBtn:disabled{ opacity:0.65; cursor:not-allowed; transform:none; }
 
-        /* Messages */
         .pxMsg{
           margin-top:10px;
           padding:10px 12px;
@@ -414,7 +553,6 @@ export default function Platforms() {
           color:#AB2E3C;
         }
 
-        /* ===== Brand colors ===== */
         .accent-google{ background: linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335); }
         .accent-meta{ background: linear-gradient(90deg,#1877F2,#42A5F5); }
         .accent-tiktok{ background: linear-gradient(90deg,#25F4EE,#000000,#FE2C55); }
@@ -430,9 +568,7 @@ export default function Platforms() {
         .btn-tiktok{ background: linear-gradient(135deg,#25F4EE,#FE2C55); color:#111827; }
         .btn-snap{ background: linear-gradient(135deg,#FFFC00,#FFC107); color:#111827; }
 
-        @media (max-width: 560px){
-          .bHead{ flex-direction: column; }
-        }
+        @media (max-width: 560px){ .bHead{ flex-direction: column; } }
       `}</style>
     </Container>
   );

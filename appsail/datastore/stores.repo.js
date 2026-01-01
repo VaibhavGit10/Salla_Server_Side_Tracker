@@ -174,3 +174,16 @@ export async function markStoreUninstalled(req, bodyOrStoreId) {
 
   return true;
 }
+
+
+export async function listStores(req, { limit = 50 } = {}) {
+  const zcql = getZCQL(req);
+  const q = `
+    SELECT store_id, status, updated_at, installed_at
+    FROM ${TABLE}
+    ORDER BY MODIFIEDTIME DESC
+    LIMIT ${Number(limit)}
+  `;
+  const result = await zcql.executeZCQLQuery(q);
+  return (result || []).map(r => r[TABLE]).filter(Boolean);
+}
