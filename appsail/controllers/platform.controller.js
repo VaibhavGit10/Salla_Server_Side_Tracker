@@ -1,7 +1,7 @@
 // appsail/controllers/platform.controller.js
 
 import { upsertGa4Settings } from "../datastore/ga4.repo.js";
-import { getEventStats, listEvents } from "../datastore/events.repo.js";
+import { getEventStats, listEventsCursor } from "../datastore/events.repo.js";
 import { listStores } from "../datastore/stores.repo.js";
 
 /**
@@ -65,17 +65,14 @@ export async function getEvents(req, res) {
   try {
     const store_id = String(req.query.store_id || "").trim();
     const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
+    const cursor = req.query.cursor; // optional
 
     if (!store_id) return res.status(400).json({ ok: false, error: "Missing store_id" });
 
-    const rows = await listEvents(req, { store_id, limit, offset });
-    return res.json({ ok: true, data: rows });
+    const { items, next_cursor } = await listEventsCursor(req, { store_id, limit, cursor });
+    return res.json({ ok: true, data: items, next_cursor });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      error: err?.message || "Failed to fetch events"
-    });
+    return res.status(500).json({ ok: false, error: err?.message || "Failed to fetch events" });
   }
 }
 

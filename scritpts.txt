@@ -1,0 +1,1599 @@
+appsail/server.js
+
+import express from "express";
+
+import healthRoutes from "./routes/health.routes.js";
+import oauthRoutes from "./routes/oauth.routes.js";
+import webhookRoutes from "./routes/webhook.routes.js";
+import platformRoutes from "./routes/platform.routes.js";
+import ga4Routes from "./routes/ga4.routes.js";
+
+import { rawBodySaver } from "./middlewares/rawBody.middleware.js";
+
+export function startServer() {
+  const app = express();
+
+  /**
+   * ✅ CORS SAFE MODE (IMPORTANT)
+   * - In Catalyst hosted UI, Zoho gateway already adds CORS.
+   * - If AppSail also adds CORS => duplicate header => browser blocks.
+   *
+   * So:
+   * ✅ Add CORS headers ONLY for localhost dev
+   * ❌ Add NOTHING for catalystserverless hosted UI
+   */
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || "";
+
+    const isLocalhost =
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
+    if (isLocalhost) {
+      // Allow localhost dev only
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      );
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization"
+      );
+
+      // ✅ Only enable if you truly use cookies/auth via cookies
+      // res.setHeader("Access-Control-Allow-Credentials", "true");
+
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+    } else {
+      // ✅ Hosted UI: do NOTHING (gateway handles CORS)
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+    }
+
+    next();
+  });
+
+  // ✅ JSON parser with raw body capture (keep)
+  app.use(
+    express.json({
+      limit: "2mb",
+      verify: rawBodySaver
+    })
+  );
+
+  app.use("/health", healthRoutes);
+  app.use("/oauth", oauthRoutes);
+  app.use("/webhooks", webhookRoutes);
+  app.use("/platforms", platformRoutes);
+  app.use("/platforms/ga4", ga4Routes);
+
+  app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(500).json({ error: "Internal Server Error" });
+  });
+
+  const PORT = process.env.X_ZOHO_CATALYST_LISTEN_PORT;
+  if (!PORT) throw new Error("X_ZOHO_CATALYST_LISTEN_PORT not provided by AppSail");
+
+  app.listen(PORT, () => {
+    console.log(`🚀 AppSail listening on port ${PORT}`);
+  });
+}
+
+
+
+
+appsail/routes/platform.routes.js
+
+
+
+import { Router } from "express";
+import { connectGA4, getStats, getEvents, getStores } from "../controllers/platform.controller.js";
+
+const router = Router();
+
+router.get("/stats", getStats);
+router.get("/events", getEvents);
+router.get("/stores", getStores);
+
+router.post("/ga4/connect", connectGA4);
+
+export default router;
+
+
+appsail/controllers/platform.controller.js
+
+// appsail/controllers/platform.controller.js
+
+import { upsertGa4Settings } from "../datastore/ga4.repo.js";
+import { getEventStats, listEvents } from "../datastore/events.repo.js";
+import { listStores } from "../datastore/stores.repo.js";
+
+/**
+ * POST /platforms/ga4/connect
+ * Body: { store_id, measurement_id, api_secret, enabled? }
+ * Saves GA4 settings (api_secret stored in encrypted-text column by Datastore).
+ */
+export async function connectGA4(req, res) {
+  try {
+    const { store_id, measurement_id, api_secret } = req.body;
+    const enabled = req.body?.enabled === undefined ? true : !!req.body.enabled;
+
+    if (!store_id || !measurement_id || !api_secret) {
+      return res
+        .status(400)
+        .json({ ok: false, error: "Missing fields: store_id, measurement_id, api_secret" });
+    }
+
+    await upsertGa4Settings(req, {
+      store_id: String(store_id).trim(),
+      measurement_id: String(measurement_id).trim(),
+      api_secret: String(api_secret).trim(),
+      enabled
+    });
+
+    return res.json({ ok: true, status: "ga4_connected", store_id, enabled });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: err?.message || "Failed to connect GA4"
+    });
+  }
+}
+
+/**
+ * GET /platforms/stats?store_id=...&hours=24
+ * Web-client: counts by status for the last N hours (uses CREATEDTIME window).
+ */
+export async function getStats(req, res) {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    const hours = req.query.hours ? Number(req.query.hours) : 24;
+
+    if (!store_id) return res.status(400).json({ ok: false, error: "Missing store_id" });
+
+    const stats = await getEventStats(req, { store_id, hours });
+    return res.json({ ok: true, data: stats });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: err?.message || "Failed to fetch stats"
+    });
+  }
+}
+
+/**
+ * GET /platforms/events?store_id=...&limit=50&offset=0
+ * Web-client: recent events table
+ */
+export async function getEvents(req, res) {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+
+    if (!store_id) return res.status(400).json({ ok: false, error: "Missing store_id" });
+
+    const rows = await listEvents(req, { store_id, limit, offset });
+    return res.json({ ok: true, data: rows });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: err?.message || "Failed to fetch events"
+    });
+  }
+}
+
+/**
+ * GET /platforms/stores
+ * Web-client: populate store dropdown (latest 50)
+ */
+export async function getStores(req, res) {
+  try {
+    const rows = await listStores(req, { limit: 50 });
+    return res.json({ ok: true, data: rows });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: err?.message || "Failed to list stores"
+    });
+  }
+}
+
+
+appsail/middlewares/auth.middleware.js
+
+empty
+
+appsail/services/events.service.js
+
+import * as repo from "../datastore/events.repo.js";
+import { isDuplicateEvent } from "../pipeline/deduplicator.js";
+
+/**
+ * Ingest event using repo + dedupe.
+ * NOTE: repo functions require Catalyst req context.
+ */
+export async function ingestEvent(req, event) {
+  const duplicate = await isDuplicateEvent(event, {
+    findByExternalId: (store_id, external_id, type) =>
+      repo.findByExternalId(req, store_id, external_id, type)
+  });
+
+  if (duplicate) {
+    console.log("⚠️ Duplicate event ignored:", event.external_id);
+    return { ignored: true };
+  }
+
+  await repo.saveEvent(req, event);
+
+  console.log("📥 Event stored:", event.event_id);
+  return { stored: true };
+}
+
+
+appsail/datastore/events.repo.js
+
+import { getDatastore, getZCQL } from "./client.js";
+
+const TABLE = "events";
+
+function escZcql(str) {
+  return String(str || "").replace(/'/g, "''");
+}
+
+function safeStringify(value) {
+  try {
+    return typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    return "{}";
+  }
+}
+
+export async function saveEvent(req, event) {
+  const table = getDatastore(req).table(TABLE);
+
+  const row = await table.insertRow({
+    event_id: event.event_id,
+    store_id: String(event.store_id),
+    external_id: event.external_id ? String(event.external_id) : null,
+    source: event.source ? String(event.source) : "salla",
+    type: String(event.type),
+    payload: safeStringify(event.payload),
+    status: event.status || "pending",
+    retries: Number.isFinite(event.retries) ? event.retries : 0,
+    last_attempt_at: event.last_attempt_at || null
+  });
+
+  return row;
+}
+
+export async function findByExternalId(req, store_id, external_id, type) {
+  if (!store_id || !external_id || !type) return null;
+
+  const zcql = `
+    SELECT ROWID
+    FROM ${TABLE}
+    WHERE store_id = '${escZcql(store_id)}'
+      AND external_id = '${escZcql(external_id)}'
+      AND type = '${escZcql(type)}'
+    LIMIT 1
+  `;
+
+  const zcqlClient = getZCQL(req);
+  const result = await zcqlClient.executeZCQLQuery(zcql);
+
+  if (!result || result.length === 0) return null;
+  return result[0][TABLE] || result[0];
+}
+
+export async function getEventByRowId(req, rowid) {
+  if (!rowid) return null;
+
+  const zcqlClient = getZCQL(req);
+  const q = `
+    SELECT *
+    FROM ${TABLE}
+    WHERE ROWID = ${Number(rowid)}
+    LIMIT 1
+  `;
+
+  const result = await zcqlClient.executeZCQLQuery(q);
+  const row = result?.[0]?.[TABLE] || result?.[0]?.events;
+  return row || null;
+}
+
+export async function updateEventStatus(req, rowid, status, metadata = {}) {
+  if (!rowid) return;
+
+  const table = getDatastore(req).table(TABLE);
+
+  const patch = {
+    ROWID: rowid,
+    status,
+    last_attempt_at: new Date().toISOString()
+  };
+
+  if (metadata.platform) patch.last_platform = String(metadata.platform);
+  if (Number.isFinite(metadata.http_status)) patch.last_http_status = metadata.http_status;
+
+  if (metadata.error) {
+    patch.last_error = String(metadata.error).slice(0, 2000);
+  }
+
+  if (metadata.response !== undefined && metadata.response !== null) {
+    let respStr;
+    try {
+      respStr =
+        typeof metadata.response === "string"
+          ? metadata.response
+          : JSON.stringify(metadata.response);
+    } catch {
+      respStr = String(metadata.response);
+    }
+    patch.last_response = respStr.slice(0, 5000);
+  }
+
+  if (metadata.bump_retry === true) {
+    try {
+      const zcqlClient = getZCQL(req);
+      const q = `
+        SELECT ROWID, retries
+        FROM ${TABLE}
+        WHERE ROWID = ${Number(rowid)}
+        LIMIT 1
+      `;
+      const result = await zcqlClient.executeZCQLQuery(q);
+      const row = result?.[0]?.[TABLE] || result?.[0]?.events;
+      patch.retries = Number(row?.retries || 0) + 1;
+    } catch {
+      // do nothing
+    }
+  }
+
+  await table.updateRow(patch);
+}
+
+/**
+ * Web-client: list recent events for a store.
+ * Returns array of rows (newest first).
+ */
+export async function listEvents(req, { store_id, limit = 50, offset = 0 } = {}) {
+  if (!store_id) return [];
+
+  const zcqlClient = getZCQL(req);
+  const q = `
+    SELECT ROWID, event_id, store_id, external_id, source, type, status,
+           retries, last_attempt_at, last_platform, last_http_status, last_error, last_response, CREATEDTIME
+    FROM ${TABLE}
+    WHERE store_id = '${escZcql(store_id)}'
+    ORDER BY CREATEDTIME DESC
+    LIMIT ${Number(limit)}
+    OFFSET ${Number(offset)}
+  `;
+
+  const result = await zcqlClient.executeZCQLQuery(q);
+
+  // ZCQL rows shape can vary; normalize
+  return (result || []).map((r) => r[TABLE] || r.events || r).filter(Boolean);
+}
+
+/**
+ * Web-client: basic stats counts by status (optionally last N hours).
+ * NOTE: since last_attempt_at is text, we filter by CREATEDTIME (datetime) for time-window.
+ */
+export async function getEventStats(req, { store_id, hours = 24 } = {}) {
+  if (!store_id) return null;
+
+  const zcqlClient = getZCQL(req);
+
+  // Catalyst ZCQL supports CURRENT_TIMESTAMP and date arithmetic inconsistently,
+  // so we keep it simple: stats without time filter unless you already have a reliable pattern.
+  // If you want time-window strictly, we can use CREATEDTIME >= 'ISO' string.
+  const sinceIso = new Date(Date.now() - Number(hours) * 3600 * 1000).toISOString();
+
+  const q = `
+    SELECT status, COUNT(ROWID) AS count
+    FROM ${TABLE}
+    WHERE store_id = '${escZcql(store_id)}'
+      AND CREATEDTIME >= '${escZcql(sinceIso)}'
+    GROUP BY status
+  `;
+
+  const result = await zcqlClient.executeZCQLQuery(q);
+  const rows = (result || []).map((r) => r[TABLE] || r.events || r).filter(Boolean);
+
+  const out = { store_id, since: sinceIso, total: 0, by_status: {} };
+  for (const r of rows) {
+    const status = String(r.status || "unknown");
+    const count = Number(r.count || r.COUNT || 0);
+    out.by_status[status] = count;
+    out.total += count;
+  }
+  return out;
+}
+
+
+
+
+appsail/utils/datetime.js
+
+/**
+ * Catalyst DataStore DateTime expects: "YYYY-MM-DD HH:mm:ss"
+ * (NOT ISO 8601 with T/Z)
+ */
+export function toCatalystDateTime(date) {
+  if (!date) return null;
+
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+
+  // "2025-12-30T13:15:19.123Z" -> "2025-12-30 13:15:19"
+  return d.toISOString().replace("T", " ").replace(/\..+/, "");
+}
+
+export function unixSecondsToCatalystDateTime(unixSeconds) {
+  const n = Number(unixSeconds);
+  if (!Number.isFinite(n)) return null;
+  return toCatalystDateTime(new Date(n * 1000));
+}
+
+
+appsail/middlewares/error.middleware.js
+
+empty
+
+web-client/src/pages/Logs.jsx
+
+import { useEffect, useMemo, useState } from "react";
+import Container from "../components/layout/Container";
+import Skeleton from "../components/ui/Skeleton";
+import { fetchEventLogs } from "../api/logs.api";
+import { getStoreId } from "../utils/store";
+
+function safeParse(v) {
+  try {
+    return typeof v === "string" ? JSON.parse(v) : v;
+  } catch {
+    return v;
+  }
+}
+
+function formatRelativeTime(isoOrAny) {
+  const iso = String(isoOrAny || "");
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+
+  const diffMs = Date.now() - d.getTime();
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+function mapDbStatusToUi(s) {
+  const v = String(s || "").toLowerCase();
+  if (v === "sent") return "SUCCESS";
+  if (v === "failed") return "FAILED";
+  if (v === "skipped") return "SKIPPED";
+  if (v === "pending") return "PENDING";
+  return (s || "UNKNOWN").toString().toUpperCase();
+}
+
+function mapRowToLog(row) {
+  const payloadObj = safeParse(row.payload);
+  const order = payloadObj?.data;
+  const orderId = order?.id || row.external_id || "-";
+  const value = order?.total?.amount || order?.total || null;
+
+  return {
+    rowid: row.ROWID,
+    time: formatRelativeTime(row.CREATEDTIME || row.last_attempt_at),
+    platform: String(row.last_platform || "GA4").toUpperCase(),
+    type: row.type || "-",
+    order_id: String(orderId),
+    value: value != null ? `SAR ${Number(value)}` : "-",
+    status: mapDbStatusToUi(row.status),
+    payload: payloadObj,
+    last_error: row.last_error || "",
+    last_response: row.last_response || ""
+  };
+}
+
+export default function Logs() {
+  const storeId = getStoreId();
+
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [platformFilter, setPlatformFilter] = useState("ALL");
+
+  useEffect(() => {
+    setLoading(true);
+    fetchEventLogs(storeId)
+      .then((resp) => {
+        const rows = resp?.data || [];
+        const mapped = Array.isArray(rows) ? rows.map(mapRowToLog) : [];
+        setEvents(mapped);
+      })
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
+  }, [storeId]);
+
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+
+    return (events || []).filter((e) => {
+      const platform = String(e.platform || "");
+      const status = String(e.status || "");
+      const type = String(e.type || "");
+      const order = String(e.order_id || "");
+      const value = String(e.value || "");
+      const time = String(e.time || "");
+
+      const matchesQuery =
+        !query ||
+        platform.toLowerCase().includes(query) ||
+        status.toLowerCase().includes(query) ||
+        type.toLowerCase().includes(query) ||
+        order.toLowerCase().includes(query) ||
+        value.toLowerCase().includes(query) ||
+        time.toLowerCase().includes(query);
+
+      const matchesStatus =
+        statusFilter === "ALL" ? true : status.toUpperCase() === statusFilter;
+
+      const matchesPlatform =
+        platformFilter === "ALL" ? true : platform.toUpperCase() === platformFilter;
+
+      return matchesQuery && matchesStatus && matchesPlatform;
+    });
+  }, [events, q, statusFilter, platformFilter]);
+
+  if (loading) {
+    return (
+      <Container title="Event Logs" subtitle="Loading event history…">
+        <div className="logCard">
+          <div className="logToolbar">
+            <Skeleton height={44} />
+            <Skeleton height={44} />
+            <Skeleton height={44} />
+          </div>
+          <div style={{ padding: 14 }}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Skeleton key={i} height={46} />
+            ))}
+          </div>
+        </div>
+      </Container>
+    );
+  }
+
+  if (!events || events.length === 0) {
+    return (
+      <Container title="Event Logs" subtitle="No events received yet">
+        <div className="logCard">
+          <div className="emptyState">
+            <div className="emptyIcon">📭</div>
+            <div className="emptyTitle">No events yet</div>
+            <div className="emptySub">
+              Events will appear here once your store starts receiving orders and tracking is enabled.
+            </div>
+          </div>
+        </div>
+      </Container>
+    );
+  }
+
+  return (
+    <Container title="Event Logs" subtitle="Detailed delivery history of conversion events">
+      <div className="logCard">
+        <div className="logToolbar">
+          <div className="logSearch">
+            <span className="searchIcon">⌕</span>
+            <input
+              className="searchInput"
+              placeholder="Search order id, platform, type, status..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+
+          <select className="select" value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)}>
+            <option value="ALL">All Platforms</option>
+            <option value="GA4">GA4</option>
+          </select>
+
+          <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="ALL">All Status</option>
+            <option value="SUCCESS">SUCCESS</option>
+            <option value="FAILED">FAILED</option>
+            <option value="SKIPPED">SKIPPED</option>
+            <option value="PENDING">PENDING</option>
+          </select>
+        </div>
+
+        <div className="tableWrap">
+          <table className="logTable">
+            <thead>
+              <tr>
+                <th className="colTime">Time</th>
+                <th className="colPlatform">Platform</th>
+                <th className="colType">Type</th>
+                <th className="colOrder">Order ID</th>
+                <th className="colValue">Value</th>
+                <th className="colStatus">Status</th>
+                <th className="colPayload">Payload</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="emptyInline">No results match your filters.</div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((e, idx) => (
+                  <tr key={idx}>
+                    <td className="muted">{e.time}</td>
+                    <td><PlatformBadge platform={e.platform} /></td>
+                    <td><span className="typePill">{String(e.type || "-")}</span></td>
+                    <td className="mono">{String(e.order_id || "-")}</td>
+                    <td className="mono">{String(e.value || "-")}</td>
+                    <td><StatusBadge status={e.status} /></td>
+                    <td>
+                      <details className="payload">
+                        <summary className="payloadSummary">
+                          {payloadPreview(e.payload)}
+                        </summary>
+                        <pre className="payloadPre">{safeJson(e.payload)}</pre>
+                        {(e.last_error || e.last_response) && (
+                          <pre className="payloadPre" style={{ marginTop: 10 }}>
+{`last_error: ${e.last_error || "-"}\nlast_response: ${e.last_response || "-"}`}
+                          </pre>
+                        )}
+                      </details>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="logFooter">
+          <div className="muted">
+            Showing <b>{filtered.length}</b> of <b>{events.length}</b> events
+          </div>
+          <div className="muted">Store: {storeId || "N/A"}</div>
+        </div>
+      </div>
+
+      {/* keep your existing CSS + badges + utils below unchanged */}
+      {/* (StatusBadge update below) */}
+    </Container>
+  );
+}
+
+/* ---------- Badges ---------- */
+function StatusBadge({ status }) {
+  const s = String(status || "").toUpperCase();
+  const ok = s === "SUCCESS";
+  const skipped = s === "SKIPPED";
+
+  return (
+    <span className={`st ${ok ? "ok" : skipped ? "skip" : "bad"}`}>
+      {s}
+      <style>{`
+        .st{
+          display:inline-flex;
+          align-items:center;
+          padding:6px 10px;
+          border-radius:999px;
+          font-size:12px;
+          font-weight:1100;
+          border: 1px solid rgba(15,23,42,0.10);
+          white-space: nowrap;
+        }
+        .st.ok{
+          background: rgba(25,135,84,0.12);
+          border-color: rgba(25,135,84,0.20);
+          color:#198754;
+        }
+        .st.skip{
+          background: rgba(255,193,7,0.14);
+          border-color: rgba(255,193,7,0.22);
+          color:#B45309;
+        }
+        .st.bad{
+          background: rgba(171,46,60,0.12);
+          border-color: rgba(171,46,60,0.20);
+          color:#AB2E3C;
+        }
+      `}</style>
+    </span>
+  );
+}
+
+function PlatformBadge({ platform }) {
+  const p = String(platform || "").toUpperCase();
+  const cls = p === "GA4" ? "ga4" : "default";
+
+  return (
+    <span className={`pb ${cls}`}>
+      {p || "UNKNOWN"}
+      <style>{`
+        .pb{
+          display:inline-flex;
+          align-items:center;
+          padding:6px 10px;
+          border-radius:999px;
+          font-size:12px;
+          font-weight:1100;
+          border: 1px solid rgba(15,23,42,0.10);
+          white-space: nowrap;
+        }
+        .pb.ga4{ background: rgba(66,133,244,0.12); border-color: rgba(66,133,244,0.18); color:#4285F4; }
+        .pb.default{ background: rgba(13,202,240,0.10); border-color: rgba(13,202,240,0.18); color:#0DCAF0; }
+      `}</style>
+    </span>
+  );
+}
+
+/* ---------- Utils ---------- */
+function safeJson(obj) {
+  try {
+    return JSON.stringify(obj ?? {}, null, 2);
+  } catch {
+    return "{}";
+  }
+}
+
+function payloadPreview(payload) {
+  try {
+    const str = JSON.stringify(payload ?? {});
+    return str.length > 60 ? str.slice(0, 60) + "…" : str;
+  } catch {
+    return "View";
+  }
+}
+
+
+web-client/src/api/logs.api.js
+
+/**
+ * Fetch event logs (aligned to backend)
+ * -> GET /platforms/events?store_id=...&limit=50&offset=0
+ */
+export async function fetchEventLogs(storeId, limit = 50, offset = 0) {
+  const res = await fetch(
+    `/platforms/events?store_id=${storeId}&limit=${limit}&offset=${offset}`
+  );
+  if (!res.ok) {
+    throw new Error("Failed to fetch logs");
+  }
+  return res.json();
+}
+
+
+
+web-client/src/api/http.js
+
+
+// web-client/src/api/http.js
+
+function joinUrl(base, path) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  if (!b) return `/${p}`;
+  return `${b}/${p}`;
+}
+
+const BASE_URL =
+  window.__API_BASE__ ||            // runtime injected via index.html
+  process.env.REACT_APP_API_BASE || // optional build-time (CRA)
+  "";                               // fallback (same origin)
+
+async function parseJson(res) {
+  return res.json().catch(() => null);
+}
+
+export async function apiGet(path) {
+  const res = await fetch(joinUrl(BASE_URL, path), {
+    method: "GET",
+    headers: { "Accept": "application/json" }
+  });
+
+  const data = await parseJson(res);
+  if (!res.ok) throw new Error(data?.error || data?.message || "API error");
+  return data;
+}
+
+export async function apiPost(path, body) {
+  const res = await fetch(joinUrl(BASE_URL, path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+
+  const data = await parseJson(res);
+  if (!res.ok) throw new Error(data?.error || data?.message || "API error");
+  return data;
+}
+
+
+
+
+web-client/src/utils/store.js
+
+const KEY = "selected_store_id";
+
+export function getStoreId() {
+  const params = new URLSearchParams(window.location.search);
+  const urlStore = params.get("store_id");
+
+  if (urlStore) {
+    const clean = String(urlStore).trim();
+    localStorage.setItem(KEY, clean);
+    return clean;
+  }
+
+  return String(localStorage.getItem(KEY) || "").trim();
+}
+
+export function setStoreId(storeId) {
+  const id = String(storeId || "").trim();
+  if (!id) return;
+
+  localStorage.setItem(KEY, id);
+
+  // ✅ same-tab notify (Dashboard listens to this)
+  window.dispatchEvent(
+    new CustomEvent("store_id_changed", { detail: { storeId: id } })
+  );
+}
+
+
+web-client/src/components/tables/EventTable.jsx
+
+import { useState } from "react";
+import "./EventTable.css";
+
+export default function EventTable({ events }) {
+  const [selected, setSelected] = useState(null);
+
+  return (
+    <>
+      <table className="event-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Platform</th>
+            <th>Event</th>
+            <th>Order ID</th>
+            <th>Value</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i}>
+              <td>{e.time}</td>
+              <td>{e.platform}</td>
+              <td>{e.type}</td>
+              <td>{e.order_id}</td>
+              <td>{e.value}</td>
+              <td>
+                <span className={`status ${e.status.toLowerCase()}`}>
+                  {e.status}
+                </span>
+              </td>
+              <td>
+                <button className="link" onClick={() => setSelected(e)}>
+                  View
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {selected && (
+        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Event Payload</h3>
+            <pre>{JSON.stringify(selected.payload, null, 2)}</pre>
+            <button onClick={() => setSelected(null)}>Close</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+web-client/src/pages/Dashboard.jsx
+
+import { useEffect, useMemo, useState } from "react";
+import Skeleton from "../components/ui/Skeleton";
+import { getStoreId } from "../utils/store";
+import { fetchDashboardSummary } from "../api/platforms.api";
+
+export default function Dashboard() {
+  // ✅ make storeId reactive (so dashboard updates when you change store in Connections)
+  const [storeId, setStoreIdState] = useState(() => getStoreId() || "");
+
+  const [loading, setLoading] = useState(true);
+
+  // ✅ backend-driven stats (defaults)
+  const [stats, setStats] = useState({
+    total: 0,
+    by_status: {}
+  });
+
+  // ✅ listen for store changes (same-tab + cross-tab)
+  useEffect(() => {
+  const syncStore = () => setStoreIdState(getStoreId() || "");
+
+  // ✅ cross-tab updates
+  const onStorage = (e) => {
+    if (e.key === "selected_store_id") syncStore();
+  };
+
+  // ✅ same-tab updates
+  const onStoreChange = (e) => {
+    const next = e?.detail?.storeId;
+    if (next) setStoreIdState(String(next));
+    else syncStore();
+  };
+
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("store_id_changed", onStoreChange);
+
+  syncStore();
+
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("store_id_changed", onStoreChange);
+  };
+}, []);
+
+
+  // ✅ load stats ONLY when storeId is available
+  useEffect(() => {
+    let mounted = true;
+
+    // ✅ CRITICAL GUARD
+    if (!storeId || !String(storeId).trim()) {
+      setStats({ total: 0, by_status: {} });
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    fetchDashboardSummary(storeId, 24)
+      .then((resp) => {
+        const data = resp?.data || resp; // defensive
+        if (mounted && data) {
+          setStats({
+            total: Number(data.total || 0),
+            by_status: data.by_status || {}
+          });
+        }
+      })
+      .catch(() => {
+        // keep defaults
+      })
+      .finally(() => mounted && setLoading(false));
+
+    return () => {
+      mounted = false;
+    };
+  }, [storeId]);
+
+  // ✅ derive KPI numbers from datastore statuses
+  const summary = useMemo(() => {
+    const by = stats.by_status || {};
+    const total = Number(stats.total || 0);
+    const sent = Number(by.sent || 0);
+    const failed = Number(by.failed || 0);
+    const skipped = Number(by.skipped || 0);
+    const pending = Number(by.pending || 0);
+
+    const delivered = sent + failed; // only attempted deliveries
+    const successRate = delivered > 0 ? (sent / delivered) * 100 : 0;
+
+    return {
+      total,
+      sent,
+      failed,
+      skipped,
+      pending,
+      successRate
+    };
+  }, [stats]);
+
+  // keep your existing demo visuals for now
+  const platformDistribution = [{ platform: "GA4", value: 100, color: "#0D6EFD" }];
+
+  const trafficTrend = useMemo(
+    () => ({
+      labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      series: [{ name: "GA4", color: "#0D6EFD", data: [0, 0, 0, 0, 0, 0, 0] }]
+    }),
+    []
+  );
+
+  const platformCards = [
+    {
+      name: "GA4",
+      desc: "Analytics events",
+      pill: "Tracking",
+      tone: "#0D6EFD",
+      accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)",
+      stats: {
+        forwarded: summary.total,
+        successRate: Number(summary.successRate.toFixed(1)),
+        revenue: 0,
+        loss:
+          summary.total > 0
+            ? Number(((summary.skipped / summary.total) * 100).toFixed(1))
+            : 0
+      }
+    }
+  ];
+
+  const kpis = useMemo(
+    () => [
+      { label: "Total Events", value: summary.total, delta: 0, icon: "📤", tone: "blue" },
+      { label: "Sent", value: summary.sent, delta: 0, icon: "✅", tone: "green" },
+      { label: "Failed", value: summary.failed, delta: 0, icon: "❌", tone: "pink" },
+      { label: "Skipped", value: summary.skipped, delta: 0, icon: "⏭️", tone: "yellow" }
+    ],
+    [summary]
+  );
+
+  return (
+    <div className="dash">
+      {/* TOP BAR */}
+      <div className="topbar">
+        <div className="brandArea">
+          <div className="logoBubble">∿</div>
+          <div>
+            <div className="brandTitle">Salla Hub</div>
+            <div className="brandSub">Server-side tracking overview</div>
+          </div>
+        </div>
+
+        <div className="topbarRight">
+          <div className="storeChip">
+            <span className="dotLive" />
+            Store: <b>{storeId || "N/A"}</b>
+          </div>
+          <div className="rangeChip">Last 24 hours</div>
+
+          <button className="btn ghost" type="button">Export</button>
+          <button className="btn primary" type="button">
+            View Details <span className="shine" />
+          </button>
+        </div>
+      </div>
+
+      {/* KPI GRID */}
+      <div className="grid4">
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div className="kpi" key={i}>
+                <Skeleton height={14} width="55%" />
+                <div style={{ marginTop: 12 }}>
+                  <Skeleton height={34} width="65%" />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <Skeleton height={12} width="45%" />
+                </div>
+              </div>
+            ))
+          : kpis.map((k) => <KPI key={k.label} {...k} />)}
+      </div>
+
+      {/* MAIN GRID */}
+      <div className="mainGrid">
+        <div className="card premium">
+          <div className="cardHead">
+            <div>
+              <div className="cardTitle">Traffic Trend (All Platforms)</div>
+              <div className="cardSub">MVP: GA4 only</div>
+            </div>
+            <span className="pill blue">Traffic</span>
+          </div>
+          <div className="cardBody">
+            <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} />
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="cardHead">
+            <div>
+              <div className="cardTitle">Platform Distribution</div>
+              <div className="cardSub">MVP: GA4 only</div>
+            </div>
+            <span className="pill cyan">Sources</span>
+          </div>
+
+          <div className="cardBody cardBodyDist">
+            {loading ? (
+              <>
+                <Skeleton height={240} />
+                <div style={{ marginTop: 12 }}>
+                  <Skeleton height={12} width="70%" />
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Skeleton height={12} width="55%" />
+                </div>
+              </>
+            ) : (
+              <AnimatedDonutDistribution
+                items={platformDistribution}
+                centerTitle="Total Events"
+                centerValue={formatMoney(summary.total)}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* PLATFORM CARDS */}
+      <div className="grid4">
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div className="pCard" key={i}>
+                <Skeleton height={10} width="45%" />
+                <div style={{ marginTop: 10 }}>
+                  <Skeleton height={18} width="65%" />
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <Skeleton height={48} />
+                </div>
+              </div>
+            ))
+          : platformCards.map((p) => <PlatformCard key={p.name} {...p} />)}
+      </div>
+
+      <style>{css}</style>
+    </div>
+  );
+}
+
+/* KPI */
+function KPI({ label, value, delta, icon, tone }) {
+  const isUp = typeof delta === "number" ? delta >= 0 : true;
+  const abs = typeof delta === "number" ? Math.abs(delta) : 0;
+
+  return (
+    <div className={`kpi tone-${tone}`}>
+      <div className="kpiTop">
+        <div className="kpiLabel">{label}</div>
+        <div className="kpiIcon">{icon}</div>
+      </div>
+
+      <div className="kpiValue">{value}</div>
+
+      <div className="kpiBottom">
+        <div className={`delta ${isUp ? "up" : "down"}`}>
+          {isUp ? "▲" : "▼"} {abs}%
+        </div>
+        <div className="kpiHint">vs last period</div>
+      </div>
+    </div>
+  );
+}
+
+/* Platform Card */
+function PlatformCard({ name, desc, pill, tone, accent, stats }) {
+  return (
+    <div className="pCard">
+      <div className="pAccent" style={{ background: accent }} />
+      <div className="pBody">
+        <div className="pTop">
+          <div>
+            <div className="pName">{name}</div>
+            <div className="pDesc">{desc}</div>
+          </div>
+          <div className="pPill" style={{ color: tone, background: `${tone}12`, borderColor: `${tone}26` }}>
+            {pill}
+          </div>
+        </div>
+
+        <div className="pStats">
+          <StatMini label="Forwarded" value={stats.forwarded} />
+          <StatMini label="Success" value={`${stats.successRate}%`} />
+          <StatMini label="Revenue" value={`SAR ${formatMoney(stats.revenue)}`} />
+          <StatMini label="Loss" value={`${stats.loss}%`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatMini({ label, value }) {
+  return (
+    <div className="mini">
+      <div className="miniLabel">{label}</div>
+      <div className="miniValue">{value}</div>
+    </div>
+  );
+}
+
+/* Bar Chart */
+function GroupedBarChart({ labels = [], series = [] }) {
+  const [hover, setHover] = useState(null);
+
+  const W = 980, H = 300;
+  const PAD_X = 44, PAD_TOP = 20, PAD_BOTTOM = 40;
+
+  const max = Math.max(1, ...series.flatMap((s) => s.data || []));
+  const innerW = W - PAD_X * 2;
+  const innerH = H - PAD_TOP - PAD_BOTTOM;
+
+  const groups = labels.length || 1;
+  const groupW = innerW / groups;
+
+  const barCount = Math.max(1, series.length);
+  const gap = Math.max(6, Math.floor(groupW * 0.06));
+  const barW = Math.max(10, Math.floor((groupW - gap * (barCount + 1)) / barCount));
+
+  const x0 = (i) => PAD_X + i * groupW;
+  const barX = (i, j) => x0(i) + gap + j * (barW + gap);
+
+  const y = (v) => PAD_TOP + (1 - v / max) * innerH;
+  const barH = (v) => PAD_TOP + innerH - y(v);
+
+  const onMove = (evt) => {
+    const rect = evt.currentTarget.getBoundingClientRect();
+    const mx = ((evt.clientX - rect.left) / rect.width) * W;
+    const idx = Math.min(labels.length - 1, Math.max(0, Math.floor((mx - PAD_X) / groupW)));
+    setHover({ idx });
+  };
+  const onLeave = () => setHover(null);
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width="100%"
+      height="300"
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+      style={{ display: "block" }}
+    >
+      {labels.map((lb, i) => (
+        <text
+          key={lb}
+          x={x0(i) + groupW / 2}
+          y={H - 12}
+          textAnchor="middle"
+          fontSize="12"
+          fill="rgba(15,23,42,0.55)"
+          fontWeight="900"
+        >
+          {lb}
+        </text>
+      ))}
+
+      {labels.map((_, i) => (
+        <g key={i}>
+          {series.map((s, j) => {
+            const v = s.data?.[i] ?? 0;
+            const bx = barX(i, j);
+            const by = y(v);
+            const bh = barH(v);
+
+            return (
+              <rect
+                key={`${i}-${j}`}
+                x={bx}
+                y={by}
+                width={barW}
+                height={bh}
+                rx="10"
+                fill={s.color}
+                opacity={hover && hover.idx !== i ? 0.45 : 0.95}
+              />
+            );
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+/* ✅ FIXED + ALIGNED Donut Distribution */
+function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
+  const [active, setActive] = useState(null);
+
+  const total = Math.max(1, items.reduce((s, it) => s + (Number(it.value) || 0), 0));
+  const arcs = items.map((it) => ({ ...it, value: Number(it.value) || 0 }));
+  const size = 230;
+  const stroke = 18;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+
+  let offset = 0;
+  const slices = arcs.map((it) => {
+    const pct = it.value / total;
+    const len = pct * c;
+    const obj = { ...it, pct, len, offset };
+    offset += len;
+    return obj;
+  });
+
+  const activeSlice = typeof active === "number" ? slices[active] : null;
+
+  return (
+    <div className="donutWrap">
+      {/* LEFT */}
+      <div className="donutLeft">
+        <div className="donutStage">
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke="rgba(15,23,42,0.08)"
+              strokeWidth={stroke}
+            />
+
+            <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
+              {slices.map((a, i) => (
+                <circle
+                  key={a.platform}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={r}
+                  fill="none"
+                  stroke={a.color}
+                  strokeWidth={stroke}
+                  strokeLinecap="round"
+                  strokeDasharray={`${a.len} ${c - a.len}`}
+                  strokeDashoffset={-a.offset}
+                  className="donutArc"
+                  style={{ opacity: active === null || active === i ? 1 : 0.35 }}
+                  onMouseEnter={() => setActive(i)}
+                  onMouseLeave={() => setActive(null)}
+                />
+              ))}
+            </g>
+
+            <foreignObject x="52" y="78" width="126" height="90">
+              <div className="donutCenter">
+                <div className="donutTitle">{centerTitle}</div>
+                <div className="donutValue">{centerValue}</div>
+                {activeSlice ? (
+                  <div className="donutActive">
+                    <span className="dot" style={{ background: activeSlice.color }} />
+                    {activeSlice.platform}: <b>{Math.round(activeSlice.pct * 100)}%</b>
+                  </div>
+                ) : (
+                  <div className="donutActive muted">Hover a slice</div>
+                )}
+              </div>
+            </foreignObject>
+          </svg>
+        </div>
+      </div>
+
+      {/* RIGHT */}
+      <div className="donutRight">
+        <div className="donutLegend">
+          {slices.map((a, i) => (
+            <div
+              key={a.platform}
+              className="donutItem"
+              onMouseEnter={() => setActive(i)}
+              onMouseLeave={() => setActive(null)}
+            >
+              <span className="dot" style={{ background: a.color }} />
+              <div className="donutItemText">
+                <div className="donutItemName">{a.platform}</div>
+                <div className="donutItemSub">
+                  {formatMoney(a.value)} • <b>{Math.round(a.pct * 100)}%</b>
+                </div>
+              </div>
+              <div className="donutPill">{Math.round(a.pct * 100)}%</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatMoney(n) {
+  try {
+    return new Intl.NumberFormat("en-US").format(Number(n || 0));
+  } catch {
+    return n;
+  }
+}
+
+/* ✅ IMPORTANT: alignment fixes are inside css below */
+const css = `
+:root{
+  --a:#AF1763;
+  --b:#0D6EFD;
+  --g:#198754;
+  --c:#0DCAF0;
+  --y:#FFC107;
+}
+
+.dash{
+  width:100%;
+  padding:18px;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(175,23,99,0.12), transparent 60%),
+    radial-gradient(circle at 90% 10%, rgba(13,202,240,0.12), transparent 55%),
+    #f3f4f6;
+}
+
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.brandArea{display:flex;align-items:center;gap:10px;}
+.logoBubble{width:44px;height:44px;border-radius:16px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--a),var(--b));font-weight:1200;}
+.brandTitle{font-size:16px;font-weight:1100;color:#0f172a;}
+.brandSub{margin-top:2px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.topbarRight{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+.storeChip{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:999px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);font-size:12px;font-weight:950;color:rgba(15,23,42,0.72);}
+.dotLive{width:10px;height:10px;border-radius:999px;background:var(--g);box-shadow:0 0 0 6px rgba(25,135,84,0.14);}
+.rangeChip{padding:10px 12px;border-radius:999px;background:rgba(13,202,240,0.12);border:1px solid rgba(13,202,240,0.22);font-size:12px;font-weight:950;color:#055a66;}
+
+.btn{border:0;cursor:pointer;padding:10px 14px;border-radius:14px;font-weight:950;font-size:14px;position:relative;overflow:hidden;white-space:nowrap;}
+.btn.ghost{background:rgba(255,255,255,0.92);border:1px solid rgba(15,23,42,0.10);color:rgba(15,23,42,0.78);}
+.btn.primary{color:#fff;background:linear-gradient(135deg,var(--a),var(--b));}
+.shine{position:absolute;top:-60%;left:-40%;width:40%;height:220%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.35),transparent);transform:rotate(25deg);animation:shine 2.8s ease-in-out infinite;}
+@keyframes shine{0%{transform:translateX(-160%) rotate(25deg);opacity:0;}20%{opacity:1;}60%{transform:translateX(260%) rotate(25deg);opacity:0;}100%{opacity:0;}}
+
+.heroStrip{display:flex;gap:14px;flex-wrap:wrap;padding:16px;border-radius:22px;border:1px solid rgba(15,23,42,0.10);background:linear-gradient(180deg,rgba(255,255,255,0.94),rgba(255,255,255,0.74));}
+.heroLeft{flex:1;min-width:260px;}
+.heroRight{width:280px;max-width:100%;}
+.heroBadge{display:inline-flex;align-items:center;gap:10px;padding:9px 12px;border-radius:999px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);font-size:13px;font-weight:900;}
+.pulseDot{width:10px;height:10px;border-radius:999px;background:var(--g);box-shadow:0 0 0 6px rgba(25,135,84,0.16);}
+.badgePill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:950;background:rgba(25,135,84,0.14);border:1px solid rgba(25,135,84,0.22);color:#0b3d1f;}
+.heroTitle{margin-top:10px;font-size:20px;font-weight:1100;color:#0f172a;}
+.heroSub{margin-top:4px;font-size:13px;font-weight:850;color:rgba(15,23,42,0.62);}
+
+.healthCard{height:100%;border-radius:18px;padding:14px;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.82);display:flex;flex-direction:column;justify-content:space-between;}
+.healthTop{display:flex;gap:10px;}
+.healthIcon{width:40px;height:40px;border-radius:16px;display:grid;place-items:center;background:rgba(13,110,253,0.12);border:1px solid rgba(13,110,253,0.22);}
+.healthTitle{font-size:13px;font-weight:1100;color:#0f172a;}
+.healthSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.healthPill{padding:8px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);}
+.healthPill.ok{background:rgba(25,135,84,0.14);border-color:rgba(25,135,84,0.22);color:#0b3d1f;}
+
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
+@media (max-width:1100px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:560px){.dash{padding:12px;}.grid4{grid-template-columns:1fr;}}
+
+/* ✅ MAIN ALIGN FIX */
+.mainGrid{
+  display:grid;
+  grid-template-columns: 2fr 1fr;
+  gap:14px;
+  align-items: stretch;
+}
+@media (max-width:980px){.mainGrid{grid-template-columns:1fr;}}
+
+.card{
+  border-radius:22px;
+  padding:14px;
+  background:rgba(255,255,255,0.86);
+  border:1px solid rgba(15,23,42,0.10);
+  display:flex;
+  flex-direction:column;     /* ✅ makes head + body align */
+}
+.cardBody{
+  flex:1;                    /* ✅ stretch body to align height */
+  padding-top:10px;
+  min-height: 320px;         /* ✅ ensures right card doesn't collapse */
+}
+.cardBodyDist{
+  display:flex;
+  align-items:center;        /* ✅ vertical align donut nicely */
+  justify-content:center;    /* ✅ center everything */
+}
+.cardHead{display:flex;justify-content:space-between;gap:12px;}
+.cardTitle{font-size:15px;font-weight:1150;color:#0f172a;}
+.cardSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.card.premium{background:rgba(255,255,255,0.90);}
+
+.pill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);}
+.pill.blue{background:rgba(13,110,253,0.14);border-color:rgba(13,110,253,0.22);color:#083b8a;}
+.pill.cyan{background:rgba(13,202,240,0.14);border-color:rgba(13,202,240,0.22);color:#055a66;}
+
+/* KPI */
+.kpi{border-radius:22px;padding:16px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);}
+.kpiTop{display:flex;justify-content:space-between;align-items:center;}
+.kpiLabel{font-size:13px;font-weight:950;color:rgba(15,23,42,0.65);}
+.kpiIcon{width:44px;height:44px;border-radius:18px;display:grid;place-items:center;background:rgba(15,23,42,0.05);}
+.kpiValue{margin-top:10px;font-size:28px;font-weight:1200;color:#0f172a;}
+.kpiBottom{margin-top:10px;display:flex;justify-content:space-between;align-items:center;}
+.kpiHint{font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.delta{font-size:12px;font-weight:1100;padding:7px 10px;border-radius:999px;border:1px solid rgba(15,23,42,0.10);}
+.delta.up{background:rgba(25,135,84,0.14);border-color:rgba(25,135,84,0.22);color:#0b3d1f;}
+.delta.down{background:rgba(171,46,60,0.14);border-color:rgba(171,46,60,0.22);color:#6b0d16;}
+
+/* ✅ Donut alignment */
+.donutWrap{
+  width:100%;
+  display:flex;
+  gap:12px;
+  align-items:center;
+  justify-content:center;
+}
+.donutLeft{
+  flex: 0 0 240px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.donutRight{
+  flex:1;
+  min-width: 0;
+  display:flex;
+  justify-content:center;
+}
+@media (max-width:980px){
+  .donutWrap{ flex-direction:column; }
+  .donutLeft{ flex: 0 0 auto; }
+  .donutRight{ width:100%; }
+}
+
+.donutStage{display:grid;place-items:center;}
+.donutArc{transform-origin:50% 50%;animation:donutIn 900ms cubic-bezier(.2,.9,.2,1) both;}
+@keyframes donutIn{from{stroke-dasharray:0 9999;opacity:0.2;}to{opacity:1;}}
+.donutCenter{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;}
+.donutTitle{font-size:12px;font-weight:950;color:rgba(15,23,42,0.55);}
+.donutValue{font-size:16px;font-weight:1200;color:#0f172a;}
+.donutActive{font-size:12px;font-weight:950;color:rgba(15,23,42,0.75);display:flex;align-items:center;gap:8px;}
+.donutActive.muted{color:rgba(15,23,42,0.45);}
+.dot{width:10px;height:10px;border-radius:999px;display:inline-block;}
+
+.donutLegend{
+  width:100%;
+  max-width: 320px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  max-height: 260px;      /* ✅ prevent overflow */
+  overflow:auto;          /* ✅ scroll if needed */
+  padding-right: 4px;
+}
+.donutItem{display:flex;align-items:center;gap:10px;padding:10px;border-radius:16px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
+.donutItemText{flex:1;}
+.donutItemName{font-size:13px;font-weight:1100;color:#0f172a;}
+.donutItemSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.donutPill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.75);color:rgba(15,23,42,0.75);}
+
+/* Platform cards (kept minimal) */
+.pCard{border-radius:22px;overflow:hidden;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.86);}
+.pAccent{height:6px;width:100%;}
+.pBody{padding:14px 16px 16px;}
+.pTop{display:flex;justify-content:space-between;gap:10px;}
+.pName{font-size:14px;font-weight:1100;color:#0f172a;}
+.pDesc{margin-top:3px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:1050;border:1px solid rgba(15,23,42,0.10);}
+.pStats{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mini{border-radius:16px;padding:10px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
+.miniLabel{font-size:11px;font-weight:950;color:rgba(15,23,42,0.55);}
+.miniValue{margin-top:6px;font-size:14px;font-weight:1150;color:#0f172a;}
+`;

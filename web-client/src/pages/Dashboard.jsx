@@ -1,7 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+// web-client/src/pages/Dashboard.jsx
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
 import { fetchDashboardSummary } from "../api/platforms.api";
+
+/**
+ * Active tab: ~2–3s
+ * Hidden tab: ~8–10s
+ * Adds slight jitter to avoid thundering herd
+ */
+function computeDelayMs() {
+  const hidden = document.hidden;
+  const base = hidden ? 9000 : 2500;
+  const jitter = Math.floor(Math.random() * 400) - 200; // +/-200ms
+  return Math.max(800, base + jitter);
+}
 
 export default function Dashboard() {
   // ✅ make storeId reactive (so dashboard updates when you change store in Connections)
@@ -15,64 +29,116 @@ export default function Dashboard() {
     by_status: {}
   });
 
+  // ✅ poll control
+  const abortRef = useRef(null);
+  const timerRef = useRef(null);
+  const storeRef = useRef(storeId);
+
   // ✅ listen for store changes (same-tab + cross-tab)
   useEffect(() => {
-  const syncStore = () => setStoreIdState(getStoreId() || "");
+    const syncStore = () => setStoreIdState(getStoreId() || "");
 
-  // ✅ cross-tab updates
-  const onStorage = (e) => {
-    if (e.key === "selected_store_id") syncStore();
-  };
+    // ✅ cross-tab updates
+    const onStorage = (e) => {
+      if (e.key === "selected_store_id") syncStore();
+    };
 
-  // ✅ same-tab updates
-  const onStoreChange = (e) => {
-    const next = e?.detail?.storeId;
-    if (next) setStoreIdState(String(next));
-    else syncStore();
-  };
+    // ✅ same-tab updates
+    const onStoreChange = (e) => {
+      const next = e?.detail?.storeId;
+      if (next) setStoreIdState(String(next));
+      else syncStore();
+    };
 
-  window.addEventListener("storage", onStorage);
-  window.addEventListener("store_id_changed", onStoreChange);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("store_id_changed", onStoreChange);
 
-  syncStore();
+    syncStore();
 
-  return () => {
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener("store_id_changed", onStoreChange);
-  };
-}, []);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("store_id_changed", onStoreChange);
+    };
+  }, []);
 
-
-  // ✅ load stats ONLY when storeId is available
+  // ✅ realtime-like stats polling (safe + efficient)
   useEffect(() => {
-    let mounted = true;
+    storeRef.current = storeId;
+
+    const stop = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+
+      if (abortRef.current) abortRef.current.abort();
+      abortRef.current = null;
+    };
 
     // ✅ CRITICAL GUARD
     if (!storeId || !String(storeId).trim()) {
+      stop();
       setStats({ total: 0, by_status: {} });
       setLoading(false);
-      return;
+      return () => stop();
     }
 
+    stop();
     setLoading(true);
 
-    fetchDashboardSummary(storeId, 24)
-      .then((resp) => {
-        const data = resp?.data || resp; // defensive
-        if (mounted && data) {
+    const scheduleNext = (ms) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => tick(false), ms);
+    };
+
+    const tick = async (initial) => {
+      // cancel any in-flight
+      if (abortRef.current) abortRef.current.abort();
+
+      const ac = new AbortController();
+      abortRef.current = ac;
+
+      try {
+        const resp = await fetchDashboardSummary(storeId, 24);
+        // If store changed mid-flight, ignore
+        if (storeRef.current !== storeId) return;
+
+        const data = resp?.data || resp;
+        if (data) {
           setStats({
             total: Number(data.total || 0),
             by_status: data.by_status || {}
           });
         }
-      })
-      .catch(() => {
-        // keep defaults
-      })
-      .finally(() => mounted && setLoading(false));
+
+        if (initial) setLoading(false);
+
+        // ✅ dynamic refresh cadence
+        scheduleNext(computeDelayMs());
+      } catch (e) {
+        if (e?.name === "AbortError") return;
+
+        if (initial) setLoading(false);
+
+        // ✅ error backoff (don’t hammer backend)
+        scheduleNext(6000);
+      }
+    };
+
+    // ✅ resume fast when tab becomes visible
+    const onVis = () => {
+      if (!document.hidden) {
+        // refresh immediately on focus
+        tick(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVis);
+
+    // start immediately
+    tick(true);
 
     return () => {
-      mounted = false;
+      document.removeEventListener("visibilitychange", onVis);
+      stop();
     };
   }, [storeId]);
 
@@ -390,6 +456,7 @@ function GroupedBarChart({ labels = [], series = [] }) {
     </svg>
   );
 }
+
 /* ✅ FIXED + ALIGNED Donut Distribution */
 function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
   const [active, setActive] = useState(null);

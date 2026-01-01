@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+// web-client/src/pages/Logs.jsx
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import Container from "../components/layout/Container";
 import Skeleton from "../components/ui/Skeleton";
 import { fetchEventLogs } from "../api/logs.api";
@@ -57,8 +59,15 @@ function mapRowToLog(row) {
   };
 }
 
+function computeDelayMs() {
+  const hidden = document.hidden;
+  const base = hidden ? 9000 : 2500;
+  const jitter = Math.floor(Math.random() * 400) - 200;
+  return Math.max(800, base + jitter);
+}
+
 export default function Logs() {
-  const storeId = getStoreId();
+  const [storeId, setStoreIdState] = useState(() => getStoreId() || "");
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -67,16 +76,129 @@ export default function Logs() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [platformFilter, setPlatformFilter] = useState("ALL");
 
+  // cursor + safety refs
+  const cursorRef = useRef(null);     // highest ROWID seen
+  const storeRef = useRef(storeId);   // storeId at time of request
+  const timerRef = useRef(null);
+  const seenRef = useRef(new Set());  // de-dupe by ROWID
+
+  // ✅ listen for store changes (same-tab + cross-tab)
   useEffect(() => {
+    const syncStore = () => setStoreIdState(getStoreId() || "");
+
+    const onStorage = (e) => {
+      if (e.key === "selected_store_id") syncStore();
+    };
+
+    const onStoreChange = (e) => {
+      const next = e?.detail?.storeId;
+      if (next) setStoreIdState(String(next));
+      else syncStore();
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("store_id_changed", onStoreChange);
+
+    syncStore();
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("store_id_changed", onStoreChange);
+    };
+  }, []);
+
+  // ✅ fetch + polling (cursor based)
+  useEffect(() => {
+    storeRef.current = storeId;
+
+    const stop = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+    };
+
+    const resetForStore = () => {
+      cursorRef.current = null;
+      seenRef.current = new Set();
+      setEvents([]);
+    };
+
+    if (!storeId || !String(storeId).trim()) {
+      stop();
+      resetForStore();
+      setLoading(false);
+      return () => stop();
+    }
+
+    stop();
+    resetForStore();
     setLoading(true);
-    fetchEventLogs(storeId)
-      .then((resp) => {
+
+    const scheduleNext = (ms) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => tick(false), ms);
+    };
+
+    const tick = async (initial) => {
+      try {
+        const resp = await fetchEventLogs({
+          storeId,
+          limit: 50,
+          cursor: initial ? null : cursorRef.current
+        });
+
+        // if store changed mid-flight, ignore
+        if (storeRef.current !== storeId) return;
+
         const rows = resp?.data || [];
+        const nextCursor = resp?.next_cursor ?? null;
+
         const mapped = Array.isArray(rows) ? rows.map(mapRowToLog) : [];
-        setEvents(mapped);
-      })
-      .catch(() => setEvents([]))
-      .finally(() => setLoading(false));
+
+        // de-dupe by rowid
+        const fresh = [];
+        for (const m of mapped) {
+          const key = String(m.rowid || "");
+          if (!key) continue;
+          if (seenRef.current.has(key)) continue;
+          seenRef.current.add(key);
+          fresh.push(m);
+        }
+
+        if (initial) {
+          setEvents(fresh);
+          setLoading(false);
+          cursorRef.current = nextCursor;
+        } else {
+          // cursor mode returns newer items in ASC order -> prepend newest to top
+          if (fresh.length) {
+            // fresh is ASC by ROWID -> reverse so newest is first
+            const newestFirst = [...fresh].reverse();
+            setEvents((prev) => [...newestFirst, ...prev]);
+          }
+          if (nextCursor !== null && nextCursor !== undefined) {
+            cursorRef.current = nextCursor;
+          }
+        }
+
+        scheduleNext(computeDelayMs());
+      } catch (e) {
+        if (initial) setLoading(false);
+        scheduleNext(6000);
+      }
+    };
+
+    const onVis = () => {
+      if (!document.hidden) tick(false);
+    };
+
+    document.addEventListener("visibilitychange", onVis);
+
+    tick(true);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      stop();
+    };
   }, [storeId]);
 
   const filtered = useMemo(() => {
@@ -231,7 +353,6 @@ export default function Logs() {
       </div>
 
       {/* keep your existing CSS + badges + utils below unchanged */}
-      {/* (StatusBadge update below) */}
     </Container>
   );
 }

@@ -119,41 +119,94 @@ export async function updateEventStatus(req, rowid, status, metadata = {}) {
 }
 
 /**
- * Web-client: list recent events for a store.
+ * Web-client: list recent events for a store (offset paging; keep for backwards compatibility).
  * Returns array of rows (newest first).
  */
 export async function listEvents(req, { store_id, limit = 50, offset = 0 } = {}) {
   if (!store_id) return [];
 
   const zcqlClient = getZCQL(req);
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const off = Math.max(Number(offset) || 0, 0);
+
   const q = `
     SELECT ROWID, event_id, store_id, external_id, source, type, status,
+           payload,
            retries, last_attempt_at, last_platform, last_http_status, last_error, last_response, CREATEDTIME
     FROM ${TABLE}
     WHERE store_id = '${escZcql(store_id)}'
     ORDER BY CREATEDTIME DESC
-    LIMIT ${Number(limit)}
-    OFFSET ${Number(offset)}
+    LIMIT ${lim}
+    OFFSET ${off}
   `;
 
   const result = await zcqlClient.executeZCQLQuery(q);
-
-  // ZCQL rows shape can vary; normalize
   return (result || []).map((r) => r[TABLE] || r.events || r).filter(Boolean);
 }
 
 /**
+ * Cursor-based fetch for realtime UI.
+ * cursor is ROWID (monotonic).
+ * - cursor provided => fetch newer rows (ROWID > cursor) ascending
+ * - no cursor => initial page (newest first)
+ */
+export async function listEventsCursor(req, { store_id, limit = 50, cursor } = {}) {
+  if (!store_id) return { items: [], next_cursor: cursor || null };
+
+  const zcqlClient = getZCQL(req);
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+
+  // incremental fetch
+  if (cursor !== undefined && cursor !== null && String(cursor).trim() !== "") {
+    const cur = Number(cursor);
+    if (!Number.isFinite(cur) || cur < 0) return { items: [], next_cursor: cursor || null };
+
+    const q = `
+      SELECT ROWID, event_id, store_id, external_id, source, type, status,
+             payload,
+             retries, last_attempt_at, last_platform, last_http_status, last_error, last_response, CREATEDTIME
+      FROM ${TABLE}
+      WHERE store_id = '${escZcql(store_id)}'
+        AND ROWID > ${cur}
+      ORDER BY ROWID ASC
+      LIMIT ${lim}
+    `;
+
+    const result = await zcqlClient.executeZCQLQuery(q);
+    const items = (result || []).map((r) => r[TABLE] || r.events || r).filter(Boolean);
+
+    const last = items.length ? Number(items[items.length - 1].ROWID) : cur;
+    return { items, next_cursor: last };
+  }
+
+  // initial snapshot
+  const q = `
+    SELECT ROWID, event_id, store_id, external_id, source, type, status,
+           payload,
+           retries, last_attempt_at, last_platform, last_http_status, last_error, last_response, CREATEDTIME
+    FROM ${TABLE}
+    WHERE store_id = '${escZcql(store_id)}'
+    ORDER BY CREATEDTIME DESC
+    LIMIT ${lim}
+  `;
+
+  const result = await zcqlClient.executeZCQLQuery(q);
+  const items = (result || []).map((r) => r[TABLE] || r.events || r).filter(Boolean);
+
+  const maxRow = items.length
+    ? Math.max(...items.map((x) => Number(x.ROWID) || 0))
+    : null;
+
+  return { items, next_cursor: maxRow };
+}
+
+/**
  * Web-client: basic stats counts by status (optionally last N hours).
- * NOTE: since last_attempt_at is text, we filter by CREATEDTIME (datetime) for time-window.
  */
 export async function getEventStats(req, { store_id, hours = 24 } = {}) {
   if (!store_id) return null;
 
   const zcqlClient = getZCQL(req);
-
-  // Catalyst ZCQL supports CURRENT_TIMESTAMP and date arithmetic inconsistently,
-  // so we keep it simple: stats without time filter unless you already have a reliable pattern.
-  // If you want time-window strictly, we can use CREATEDTIME >= 'ISO' string.
   const sinceIso = new Date(Date.now() - Number(hours) * 3600 * 1000).toISOString();
 
   const q = `

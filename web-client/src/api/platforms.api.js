@@ -6,10 +6,11 @@ import { apiGet, apiPost } from "./http";
  * Dashboard summary
  * -> GET /platforms/stats?store_id=...&hours=24
  */
-export function fetchDashboardSummary(storeId, hours = 24) {
-  return apiGet(
-    `/platforms/stats?store_id=${encodeURIComponent(storeId)}&hours=${encodeURIComponent(hours)}`
-  );
+export async function fetchDashboardSummary(storeId, hours = 24) {
+  const qs = new URLSearchParams();
+  qs.set("store_id", String(storeId || ""));
+  qs.set("hours", String(hours));
+  return apiGet(`/platforms/stats?${qs.toString()}`);
 }
 
 /**
