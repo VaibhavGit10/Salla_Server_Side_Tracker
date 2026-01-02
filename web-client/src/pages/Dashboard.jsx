@@ -1,10 +1,59 @@
 // web-client/src/pages/Dashboard.jsx
+// ✅ Full end-to-end Dashboard page with enhancements:
+// - KPI stats (24h + previous 24h delta)
+// - Traffic Trend (7 days) ✅ 4 platforms comparison in different colours
+// - Platform Distribution donut (24h) ✅ legend always shows all 4 platforms
+// - ✅ 4 Platform Analytics Cards (GA4 + Meta + TikTok + Snapchat)
+// - Robust events response unwrapping
+// - Robust date parsing for Catalyst/ISO
+// - Safe payload parsing for revenue
+// - Polling + visibility refresh
+// - ✅ Proper alignment using CSS grid for platform cards
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
 import { fetchDashboardSummary } from "../api/platforms.api";
 import { fetchEventLogs } from "../api/logs.api";
+
+/* ---------------- Platform Config ---------------- */
+
+const PLATFORMS = [
+  {
+    key: "GA4",
+    name: "GA4",
+    desc: "Analytics events",
+    pill: "Tracking",
+    color: "#0D6EFD",
+    accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)"
+  },
+  {
+    key: "META",
+    name: "Meta",
+    desc: "CAPI events",
+    pill: "Ads",
+    color: "#7C3AED",
+    accent: "linear-gradient(90deg,#7C3AED,#EC4899)"
+  },
+  {
+    key: "TIKTOK",
+    name: "TikTok",
+    desc: "Pixel events",
+    pill: "Ads",
+    color: "#111827",
+    accent: "linear-gradient(90deg,#111827,#14B8A6)"
+  },
+  {
+    key: "SNAPCHAT",
+    name: "Snapchat",
+    desc: "Conversions API",
+    pill: "Ads",
+    color: "#F59E0B",
+    accent: "linear-gradient(90deg,#F59E0B,#EF4444)"
+  }
+];
+
+const EMPTY_7 = [0, 0, 0, 0, 0, 0, 0];
 
 /* ---------------- Helpers ---------------- */
 
@@ -23,45 +72,18 @@ function safeParse(v) {
   }
 }
 
-/**
- * ✅ Robust date parser:
- * - Date object
- * - epoch ms/seconds (number or numeric string)
- * - ISO strings
- * - "YYYY-MM-DD HH:mm:ss" (Catalyst style) as UTC
- */
+// Catalyst may return "YYYY-MM-DD HH:mm:ss" for CREATEDTIME
 function parseDateish(input) {
-  if (input === null || input === undefined) return null;
-
-  if (input instanceof Date) {
-    return Number.isNaN(input.getTime()) ? null : input;
-  }
-
-  if (typeof input === "number") {
-    const ms = input > 1e12 ? input : input > 1e9 ? input * 1000 : null;
-    if (!ms) return null;
-    const d = new Date(ms);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  const s = String(input).trim();
+  const s = String(input || "").trim();
   if (!s) return null;
-
-  if (/^\d+$/.test(s)) {
-    const n = Number(s);
-    const ms = n > 1e12 ? n : n > 1e9 ? n * 1000 : null;
-    if (!ms) return null;
-    const d = new Date(ms);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
 
   if (s.includes("T")) {
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?/.test(s)) {
-    const d = new Date(s.replace(" ", "T") + "Z"); // treat as UTC
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+    const d = new Date(s.replace(" ", "T") + "Z");
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
@@ -77,18 +99,9 @@ function formatMoney(n) {
   }
 }
 
-function clampNonNeg(n) {
-  const x = Number(n || 0);
-  return Number.isFinite(x) ? Math.max(0, x) : 0;
-}
-
-/**
- * ✅ Stats endpoint unwrap
- */
 function unwrapStatsResponse(resp) {
-  const a = resp?.data; // axios
-  const b = resp; // apiGet direct
-
+  const a = resp?.data; // axios response
+  const b = resp; // apiGet direct body
   const candidates = [a?.data, a, b?.data, b];
 
   for (const c of candidates) {
@@ -111,93 +124,9 @@ function unwrapStatsResponse(resp) {
   return null;
 }
 
-/**
- * ✅ Events response unwrap (super defensive)
- */
-function unwrapEventsResponse(resp) {
-  const root = resp?.data ?? resp;
-
-  const seen = new Set();
-  const queue = [root];
-
-  const push = (v) => {
-    if (!v || typeof v !== "object") return;
-    if (seen.has(v)) return;
-    seen.add(v);
-    queue.push(v);
-  };
-
-  while (queue.length) {
-    const cur = queue.shift();
-
-    if (Array.isArray(cur)) return cur;
-
-    if (cur?.ok === true && cur?.data) push(cur.data);
-
-    const maybe =
-      cur?.items ??
-      cur?.records ??
-      cur?.rows ??
-      cur?.result ??
-      cur?.data;
-
-    if (Array.isArray(maybe)) return maybe;
-    if (Array.isArray(cur?.data?.items)) return cur.data.items;
-
-    push(cur?.data);
-    push(cur?.data?.data);
-    push(cur?.data?.data?.data);
-    push(cur?.items);
-    push(cur?.records);
-    push(cur?.rows);
-    push(cur?.result);
-  }
-
-  return [];
-}
-
-/**
- * ✅ Catalyst ZCQL rows often come like: { events: { ...columns } }
- * This unwrap makes sure we always work with the actual row data object.
- */
-function normalizeRow(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-
-  // common ZCQL shape:
-  if (raw.events && typeof raw.events === "object" && !Array.isArray(raw.events)) {
-    return raw.events;
-  }
-
-  const keys = Object.keys(raw);
-  if (keys.length === 1) {
-    const v = raw[keys[0]];
-    if (v && typeof v === "object" && !Array.isArray(v)) return v;
-  }
-
-  return raw;
-}
-
-/**
- * ✅ case-insensitive getter
- */
-function getAny(row, keysLower) {
-  if (!row || typeof row !== "object") return undefined;
-
-  // direct match first
-  for (const k of keysLower) {
-    if (k in row) return row[k];
-  }
-
-  // map lower -> value
-  const map = {};
-  for (const k of Object.keys(row)) map[k.toLowerCase()] = row[k];
-
-  for (const k of keysLower) {
-    const v = map[k.toLowerCase()];
-    if (v !== undefined) return v;
-  }
-
-  return undefined;
+function clampNonNeg(n) {
+  const x = Number(n || 0);
+  return Number.isFinite(x) ? Math.max(0, x) : 0;
 }
 
 function diffStats(cur24, stats48) {
@@ -229,8 +158,67 @@ function dayLabelsLast7() {
 }
 
 function dayIndexMonFirst(date) {
-  const d = date.getUTCDay();
+  const d = date.getUTCDay(); // 0=Sun..6=Sat
   return d === 0 ? 6 : d - 1;
+}
+
+function normPlatform(p) {
+  const s = String(p || "GA4").trim().toUpperCase();
+  if (s === "FB" || s === "FACEBOOK" || s === "METAADS" || s === "META_ADS") return "META";
+  if (s === "TIKTOKADS" || s === "TIKTOK_ADS") return "TIKTOK";
+  if (s === "SNAP" || s === "SNAP_ADS") return "SNAPCHAT";
+  return s;
+}
+
+function getAny(obj, keys = []) {
+  if (!obj || typeof obj !== "object") return undefined;
+  for (const k of keys) {
+    if (k in obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
+  }
+  const lowerKeys = Object.keys(obj).reduce((m, k) => {
+    m[k.toLowerCase()] = obj[k];
+    return m;
+  }, {});
+  for (const k of keys) {
+    const v = lowerKeys[String(k).toLowerCase()];
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+}
+
+function normalizeRow(r) {
+  if (!r) return null;
+  if (r.data && typeof r.data === "object") return r.data;
+  if (r.item && typeof r.item === "object") return r.item;
+  return r;
+}
+
+function unwrapEventRows(evResp) {
+  const a = evResp?.data;
+  const b = evResp;
+
+  const candidates = [a?.data, a, b?.data, b].filter(Boolean);
+
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+
+    if (c.ok === true && c.data) {
+      const d = c.data;
+      if (Array.isArray(d.items)) return d.items.map(normalizeRow).filter(Boolean);
+      if (Array.isArray(d.data)) return d.data.map(normalizeRow).filter(Boolean);
+      if (Array.isArray(d)) return d.map(normalizeRow).filter(Boolean);
+    }
+
+    if (Array.isArray(c.items)) return c.items.map(normalizeRow).filter(Boolean);
+    if (Array.isArray(c.data)) return c.data.map(normalizeRow).filter(Boolean);
+
+    if (c.data && typeof c.data === "object") {
+      if (Array.isArray(c.data.items)) return c.data.items.map(normalizeRow).filter(Boolean);
+      if (Array.isArray(c.data.data)) return c.data.data.map(normalizeRow).filter(Boolean);
+    }
+  }
+
+  return [];
 }
 
 /* ---------------- Page ---------------- */
@@ -244,11 +232,25 @@ export default function Dashboard() {
   const [stats24, setStats24] = useState({ total: 0, by_status: {} });
   const [statsPrev24, setStatsPrev24] = useState({ total: 0, by_status: {} });
 
-  const [trafficSeries, setTrafficSeries] = useState([0, 0, 0, 0, 0, 0, 0]);
-  const [platformDist, setPlatformDist] = useState([{ platform: "GA4", value: 0, color: "#0D6EFD" }]);
+  const [platformDist, setPlatformDist] = useState(() =>
+    PLATFORMS.map((p) => ({ platform: p.key, value: 0, color: p.color }))
+  );
+
   const [revenueSar, setRevenueSar] = useState(0);
 
-  /* ✅ store changes */
+  const [trafficByPlatform, setTrafficByPlatform] = useState(() => {
+    const obj = {};
+    for (const p of PLATFORMS) obj[p.key] = [...EMPTY_7];
+    return obj;
+  });
+
+  const [platformMetrics, setPlatformMetrics] = useState(() => {
+    const obj = {};
+    for (const p of PLATFORMS) obj[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
+    return obj;
+  });
+
+  /* ✅ store changes (same-tab + cross-tab) */
   useEffect(() => {
     const syncStore = () => setStoreIdState(getStoreId() || "");
 
@@ -273,7 +275,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  /* ✅ polling */
+  /* ✅ polling: stats + events-derived charts */
   useEffect(() => {
     storeRef.current = storeId;
 
@@ -290,13 +292,20 @@ export default function Dashboard() {
       timer = setTimeout(() => tick(false), ms);
     };
 
-    const applyFallback = (fallbackTotal) => {
-      const buckets = [0, 0, 0, 0, 0, 0, 0];
-      buckets[dayIndexMonFirst(new Date())] = fallbackTotal;
-
-      setTrafficSeries(buckets);
-      setPlatformDist([{ platform: "GA4", value: fallbackTotal, color: "#0D6EFD" }]);
+    const resetAll = () => {
+      setStats24({ total: 0, by_status: {} });
+      setStatsPrev24({ total: 0, by_status: {} });
       setRevenueSar(0);
+
+      const t = {};
+      for (const p of PLATFORMS) t[p.key] = [...EMPTY_7];
+      setTrafficByPlatform(t);
+
+      const m = {};
+      for (const p of PLATFORMS) m[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
+      setPlatformMetrics(m);
+
+      setPlatformDist(PLATFORMS.map((p) => ({ platform: p.key, value: 0, color: p.color })));
     };
 
     const hydrateFromEvents = (rawRows, nowMs, fallbackTotal = 0) => {
@@ -305,20 +314,27 @@ export default function Dashboard() {
       const last7Ms = nowMs - 7 * 24 * 3600 * 1000;
       const last24Ms = nowMs - 24 * 3600 * 1000;
 
-      const buckets = [0, 0, 0, 0, 0, 0, 0];
+      const bucketsByPlat = {};
+      for (const p of PLATFORMS) bucketsByPlat[p.key] = [...EMPTY_7];
+
       const byPlatform = new Map();
-      let revenue = 0;
+
+      const metrics = {};
+      for (const p of PLATFORMS) {
+        metrics[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
+      }
 
       let parsedCount = 0;
 
       for (const row of rows) {
-        // ✅ IMPORTANT: prioritize last_attempt_at (this is what your stats likely uses)
         const createdRaw = getAny(row, [
           "last_attempt_at",
           "lastattemptat",
+          "CREATEDTIME",
           "createdtime",
           "created_time",
           "created_at",
+          "MODIFIEDTIME",
           "modifiedtime",
           "modified_time",
           "timestamp",
@@ -330,65 +346,87 @@ export default function Dashboard() {
         parsedCount++;
 
         const t = created.getTime();
-
-        const platform = String(getAny(row, ["last_platform", "platform", "source"]) ?? "GA4").toUpperCase();
+        const platform = normPlatform(getAny(row, ["last_platform", "platform", "source"]));
+        const platKey = PLATFORMS.some((p) => p.key === platform) ? platform : "GA4";
 
         if (t >= last24Ms) {
-          byPlatform.set(platform, (byPlatform.get(platform) || 0) + 1);
+          byPlatform.set(platKey, (byPlatform.get(platKey) || 0) + 1);
+          metrics[platKey].total += 1;
+
+          const status = String(getAny(row, ["status"]) ?? "").toLowerCase();
+          if (status === "sent") metrics[platKey].sent += 1;
+          else if (status === "failed") metrics[platKey].failed += 1;
+          else if (status === "skipped") metrics[platKey].skipped += 1;
+          else if (status === "pending") metrics[platKey].pending += 1;
+
+          if (status === "sent") {
+            const payload = safeParse(getAny(row, ["payload"]));
+            const amount =
+              payload?.data?.total?.amount ??
+              payload?.data?.total ??
+              payload?.total?.amount ??
+              payload?.total ??
+              payload?.value ??
+              null;
+
+            const num = Number(amount);
+            if (Number.isFinite(num)) metrics[platKey].revenue += num;
+          }
         }
 
         if (t >= last7Ms) {
-          buckets[dayIndexMonFirst(created)] += 1;
-        }
-
-        const status = String(getAny(row, ["status"]) ?? "").toLowerCase();
-        if (t >= last24Ms && status === "sent") {
-          const payload = safeParse(getAny(row, ["payload"]));
-          const amount =
-            payload?.data?.total?.amount ??
-            payload?.data?.total ??
-            payload?.total?.amount ??
-            payload?.total ??
-            payload?.value ??
-            null;
-
-          const num = Number(amount);
-          if (Number.isFinite(num)) revenue += num;
+          const idx = dayIndexMonFirst(created);
+          bucketsByPlat[platKey][idx] += 1;
         }
       }
 
-      const bucketsSum = buckets.reduce((a, b) => a + b, 0);
+      const bucketsSum = Object.values(bucketsByPlat).flat().reduce((a, b) => a + b, 0);
+      const distSum = Array.from(byPlatform.values()).reduce((a, b) => a + b, 0);
 
-      const distItems = Array.from(byPlatform.entries())
-        .map(([p, v]) => ({
-          platform: p,
-          value: v,
-          color: p === "GA4" ? "#0D6EFD" : "#0DCAF0"
-        }))
-        .sort((a, b) => b.value - a.value);
-
-      const distSum = distItems.reduce((s, it) => s + (Number(it.value) || 0), 0);
-
-      // ✅ if parsing fails or results still empty but KPI says events exist → fallback
       if ((parsedCount === 0 || (bucketsSum === 0 && distSum === 0)) && fallbackTotal > 0) {
-        applyFallback(fallbackTotal);
+        const fallback = {};
+        for (const p of PLATFORMS) fallback[p.key] = [...EMPTY_7];
+        fallback.GA4[dayIndexMonFirst(new Date())] = fallbackTotal;
+
+        setTrafficByPlatform(fallback);
+        setPlatformMetrics((prev) => ({
+          ...prev,
+          GA4: { ...prev.GA4, total: fallbackTotal }
+        }));
+
+        setPlatformDist(
+          PLATFORMS.map((p) => ({
+            platform: p.key,
+            value: p.key === "GA4" ? fallbackTotal : 0,
+            color: p.color
+          }))
+        );
+
+        setRevenueSar(0);
         return;
       }
 
-      setTrafficSeries(buckets);
-      setPlatformDist(distItems.length ? distItems : [{ platform: "GA4", value: 0, color: "#0D6EFD" }]);
-      setRevenueSar(revenue);
+      setTrafficByPlatform(bucketsByPlat);
+      setPlatformMetrics(metrics);
+
+      // ✅ Always include all 4 platforms in distribution (even if 0)
+      const distItems = PLATFORMS.map((p) => ({
+        platform: p.key,
+        value: byPlatform.get(p.key) || 0,
+        color: p.color
+      })).sort((a, b) => b.value - a.value);
+
+      setPlatformDist(distItems);
+
+      const totalRevenue = Object.values(metrics).reduce((s, m) => s + (Number(m.revenue) || 0), 0);
+      setRevenueSar(totalRevenue);
     };
 
     const tick = async (initial) => {
       try {
         if (!storeId || !String(storeId).trim()) {
           if (alive) {
-            setStats24({ total: 0, by_status: {} });
-            setStatsPrev24({ total: 0, by_status: {} });
-            setTrafficSeries([0, 0, 0, 0, 0, 0, 0]);
-            setPlatformDist([{ platform: "GA4", value: 0, color: "#0D6EFD" }]);
-            setRevenueSar(0);
+            resetAll();
             setLoading(false);
           }
           return;
@@ -399,7 +437,7 @@ export default function Dashboard() {
         const [r24, r48, ev] = await Promise.all([
           fetchDashboardSummary(storeId, 24),
           fetchDashboardSummary(storeId, 48),
-          fetchEventLogs({ storeId, limit: 500 })
+          fetchEventLogs({ storeId, limit: 2000 })
         ]);
 
         if (!alive || storeRef.current !== storeId) return;
@@ -411,8 +449,8 @@ export default function Dashboard() {
         setStats24(s24);
         setStatsPrev24(prev);
 
-        const rows = unwrapEventsResponse(ev);
-        hydrateFromEvents(rows, Date.now(), s24.total);
+        const rows = unwrapEventRows(ev);
+        hydrateFromEvents(rows, Date.now(), Number(s24.total || 0));
 
         if (initial) setLoading(false);
         scheduleNext(computeDelayMs());
@@ -478,34 +516,42 @@ export default function Dashboard() {
   const trafficTrend = useMemo(() => {
     return {
       labels: dayLabelsLast7(),
-      series: [{ name: "Events", color: "#0D6EFD", data: trafficSeries }]
+      series: PLATFORMS.map((p) => ({
+        name: p.name,
+        color: p.color,
+        data: trafficByPlatform[p.key] || EMPTY_7
+      }))
     };
-  }, [trafficSeries]);
-
-  const lossPct = summary.total > 0 ? (summary.skipped / summary.total) * 100 : 0;
+  }, [trafficByPlatform]);
 
   const platformCards = useMemo(() => {
-    return [
-      {
-        name: "GA4",
-        desc: "Analytics events",
-        pill: "Tracking",
-        tone: "#0D6EFD",
-        accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)",
+    return PLATFORMS.map((p) => {
+      const m = platformMetrics[p.key] || { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
+      const delivered = (m.sent || 0) + (m.failed || 0);
+      const successRate = delivered > 0 ? (m.sent / delivered) * 100 : 0;
+      const loss = m.total > 0 ? (m.skipped / m.total) * 100 : 0;
+
+      return {
+        name: p.name,
+        desc: p.desc,
+        pill: p.pill,
+        tone: p.color,
+        accent: p.accent,
         stats: {
-          forwarded: summary.total,
-          successRate: Number(summary.successRate.toFixed(1)),
-          revenue: Number(revenueSar.toFixed(2)),
-          loss: Number(lossPct.toFixed(1))
+          forwarded: m.total || 0,
+          successRate: Number(successRate.toFixed(1)),
+          revenue: Number((m.revenue || 0).toFixed(2)),
+          loss: Number(loss.toFixed(1))
         }
-      }
-    ];
-  }, [summary, revenueSar, lossPct]);
+      };
+    });
+  }, [platformMetrics]);
 
   /* -------- Render -------- */
 
   return (
     <div className="dash">
+      {/* TOP BAR */}
       <div className="topbar">
         <div className="brandArea">
           <div className="logoBubble">∿</div>
@@ -524,6 +570,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* KPI GRID */}
       <div className="grid4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
@@ -540,6 +587,7 @@ export default function Dashboard() {
           : kpis.map((k) => <KPI key={k.label} {...k} />)}
       </div>
 
+      {/* MAIN GRID */}
       <div className="mainGrid">
         <div className="card premium">
           <div className="cardHead">
@@ -555,8 +603,9 @@ export default function Dashboard() {
               <Skeleton height={300} />
             ) : (
               <>
+                <BarLegend series={trafficTrend.series} />
                 <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} />
-                {trafficTrend.series[0].data.every((x) => Number(x || 0) === 0) && (
+                {trafficTrend.series.every((s) => (s.data || []).every((x) => Number(x || 0) === 0)) && (
                   <div className="emptyChartNote">No traffic yet for the last 7 days.</div>
                 )}
               </>
@@ -585,27 +634,26 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <AnimatedDonutDistribution
-                items={platformDist}
-                centerTitle="Total Events"
-                centerValue={formatMoney(summary.total)}
-              />
+              <AnimatedDonutDistribution items={platformDist} centerTitle="Total Events" centerValue={formatMoney(summary.total)} />
             )}
           </div>
         </div>
       </div>
 
-      <div className="platformRow">
+      {/* PLATFORM CARDS (✅ proper aligned grid) */}
+      <div className="platformGrid">
         {loading ? (
-          <div className="pCard">
-            <Skeleton height={10} width="45%" />
-            <div style={{ marginTop: 10 }}>
-              <Skeleton height={18} width="65%" />
+          Array.from({ length: 4 }).map((_, i) => (
+            <div className="pCard" key={i}>
+              <Skeleton height={10} width="45%" />
+              <div style={{ marginTop: 10 }}>
+                <Skeleton height={18} width="65%" />
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <Skeleton height={110} />
+              </div>
             </div>
-            <div style={{ marginTop: 14 }}>
-              <Skeleton height={110} />
-            </div>
-          </div>
+          ))
         ) : (
           platformCards.map((p) => <PlatformCard key={p.name} {...p} />)
         )}
@@ -652,14 +700,7 @@ function PlatformCard({ name, desc, pill, tone, accent, stats }) {
             <div className="pName">{name}</div>
             <div className="pDesc">{desc}</div>
           </div>
-          <div
-            className="pPill"
-            style={{
-              color: tone,
-              background: `${tone}12`,
-              borderColor: `${tone}26`
-            }}
-          >
+          <div className="pPill" style={{ color: tone, background: `${tone}12`, borderColor: `${tone}26` }}>
             {pill}
           </div>
         </div>
@@ -684,14 +725,26 @@ function StatMini({ label, value }) {
   );
 }
 
+/* ✅ Legend for Traffic Trend */
+function BarLegend({ series = [] }) {
+  return (
+    <div className="barLegend">
+      {series.map((s) => (
+        <div key={s.name} className="barLegendItem">
+          <span className="dot" style={{ background: s.color }} />
+          {s.name}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* Bar Chart */
 function GroupedBarChart({ labels = [], series = [] }) {
-  const [hover, setHover] = useState(null);
-
   const W = 980,
     H = 300;
   const PAD_X = 44,
-    PAD_TOP = 20,
+    PAD_TOP = 18,
     PAD_BOTTOM = 40;
 
   const max = Math.max(1, ...series.flatMap((s) => s.data || []));
@@ -703,7 +756,7 @@ function GroupedBarChart({ labels = [], series = [] }) {
 
   const barCount = Math.max(1, series.length);
   const gap = Math.max(6, Math.floor(groupW * 0.06));
-  const barW = Math.max(10, Math.floor((groupW - gap * (barCount + 1)) / barCount));
+  const barW = Math.max(8, Math.floor((groupW - gap * (barCount + 1)) / barCount));
 
   const x0 = (i) => PAD_X + i * groupW;
   const barX = (i, j) => x0(i) + gap + j * (barW + gap);
@@ -711,32 +764,10 @@ function GroupedBarChart({ labels = [], series = [] }) {
   const y = (v) => PAD_TOP + (1 - v / max) * innerH;
   const barH = (v) => PAD_TOP + innerH - y(v);
 
-  const onMove = (evt) => {
-    const rect = evt.currentTarget.getBoundingClientRect();
-    const mx = ((evt.clientX - rect.left) / rect.width) * W;
-    const idx = Math.min(labels.length - 1, Math.max(0, Math.floor((mx - PAD_X) / groupW)));
-    setHover({ idx });
-  };
-
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      width="100%"
-      height="300"
-      onMouseMove={onMove}
-      onMouseLeave={() => setHover(null)}
-      style={{ display: "block" }}
-    >
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="300" style={{ display: "block" }}>
       {labels.map((lb, i) => (
-        <text
-          key={lb}
-          x={x0(i) + groupW / 2}
-          y={H - 12}
-          textAnchor="middle"
-          fontSize="12"
-          fill="rgba(15,23,42,0.55)"
-          fontWeight="900"
-        >
+        <text key={lb} x={x0(i) + groupW / 2} y={H - 12} textAnchor="middle" fontSize="12" fill="rgba(15,23,42,0.55)" fontWeight="900">
           {lb}
         </text>
       ))}
@@ -745,18 +776,7 @@ function GroupedBarChart({ labels = [], series = [] }) {
         <g key={i}>
           {series.map((s, j) => {
             const v = s.data?.[i] ?? 0;
-            return (
-              <rect
-                key={`${i}-${j}`}
-                x={barX(i, j)}
-                y={y(v)}
-                width={barW}
-                height={barH(v)}
-                rx="10"
-                fill={s.color}
-                opacity={hover && hover.idx !== i ? 0.45 : 0.95}
-              />
-            );
+            return <rect key={`${i}-${j}`} x={barX(i, j)} y={y(v)} width={barW} height={barH(v)} rx="10" fill={s.color} opacity={0.95} />;
           })}
         </g>
       ))}
@@ -764,21 +784,23 @@ function GroupedBarChart({ labels = [], series = [] }) {
   );
 }
 
-/* Donut */
+/* Donut (✅ safe for zeros + always show all platforms in legend) */
 function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
-  const [active, setActive] = useState(null);
+  const [activePlatform, setActivePlatform] = useState(null);
 
-  const sum = items.reduce((s, it) => s + (Number(it.value) || 0), 0);
+  const normalized = items.map((it) => ({ ...it, value: Number(it.value) || 0 }));
+  const sum = normalized.reduce((s, it) => s + it.value, 0);
   const total = Math.max(1, sum);
 
-  const arcs = items.map((it) => ({ ...it, value: Number(it.value) || 0 }));
+  const nonZero = normalized.filter((x) => x.value > 0);
+
   const size = 230;
   const stroke = 18;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
 
   let offset = 0;
-  const slices = arcs.map((it) => {
+  const slices = nonZero.map((it) => {
     const pct = it.value / total;
     const len = pct * c;
     const obj = { ...it, pct, len, offset };
@@ -786,24 +808,17 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
     return obj;
   });
 
-  const activeSlice = typeof active === "number" ? slices[active] : null;
+  const activeSlice = activePlatform ? slices.find((s) => s.platform === activePlatform) : null;
 
   return (
     <div className="donutWrap">
       <div className="donutLeft">
         <div className="donutStage">
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={r}
-              fill="none"
-              stroke="rgba(15,23,42,0.08)"
-              strokeWidth={stroke}
-            />
+            <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(15,23,42,0.08)" strokeWidth={stroke} />
 
             <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
-              {slices.map((a, i) => (
+              {slices.map((a) => (
                 <circle
                   key={a.platform}
                   cx={size / 2}
@@ -816,9 +831,9 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
                   strokeDasharray={`${a.len} ${c - a.len}`}
                   strokeDashoffset={-a.offset}
                   className="donutArc"
-                  style={{ opacity: active === null || active === i ? 1 : 0.35 }}
-                  onMouseEnter={() => setActive(i)}
-                  onMouseLeave={() => setActive(null)}
+                  style={{ opacity: !activePlatform || activePlatform === a.platform ? 1 : 0.35 }}
+                  onMouseEnter={() => setActivePlatform(a.platform)}
+                  onMouseLeave={() => setActivePlatform(null)}
                 />
               ))}
             </g>
@@ -843,23 +858,29 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
 
       <div className="donutRight">
         <div className="donutLegend">
-          {slices.map((a, i) => (
-            <div
-              key={a.platform}
-              className="donutItem"
-              onMouseEnter={() => setActive(i)}
-              onMouseLeave={() => setActive(null)}
-            >
-              <span className="dot" style={{ background: a.color }} />
-              <div className="donutItemText">
-                <div className="donutItemName">{a.platform}</div>
-                <div className="donutItemSub">
-                  {formatMoney(a.value)} • <b>{Math.round(a.pct * 100)}%</b>
+          {normalized.map((a) => {
+            const pct = sum > 0 ? Math.round((a.value / total) * 100) : 0;
+            const hoverable = a.value > 0;
+
+            return (
+              <div
+                key={a.platform}
+                className="donutItem"
+                onMouseEnter={() => hoverable && setActivePlatform(a.platform)}
+                onMouseLeave={() => setActivePlatform(null)}
+                style={{ opacity: !activePlatform || activePlatform === a.platform ? 1 : 0.6 }}
+              >
+                <span className="dot" style={{ background: a.color }} />
+                <div className="donutItemText">
+                  <div className="donutItemName">{a.platform}</div>
+                  <div className="donutItemSub">
+                    {formatMoney(a.value)} • <b>{pct}%</b>
+                  </div>
                 </div>
+                <div className="donutPill">{pct}%</div>
               </div>
-              <div className="donutPill">{Math.round(a.pct * 100)}%</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -958,6 +979,22 @@ const css = `
 .delta.up{background:rgba(25,135,84,0.14);border-color:rgba(25,135,84,0.22);color:#0b3d1f;}
 .delta.down{background:rgba(171,46,60,0.14);border-color:rgba(171,46,60,0.22);color:#6b0d16;}
 
+.barLegend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin: 2px 0 10px;
+  padding-left: 2px;
+}
+.barLegendItem{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  font-weight:900;
+  color: rgba(15,23,42,0.65);
+}
+
 .donutWrap{
   width:100%;
   display:flex;
@@ -1008,22 +1045,27 @@ const css = `
 .donutItemSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
 .donutPill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.75);color:rgba(15,23,42,0.75);}
 
-.platformRow{
-  display:flex;
+/* ✅ PERFECT alignment for platform cards */
+.platformGrid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
   gap:14px;
+  align-items: stretch;
 }
-.platformRow .pCard{
-  width: 360px;
-  max-width: 100%;
+@media (max-width:1200px){
+  .platformGrid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width:640px){
+  .platformGrid{ grid-template-columns: 1fr; }
 }
 
-.pCard{border-radius:22px;overflow:hidden;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.86);}
+.pCard{border-radius:22px;overflow:hidden;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.86);display:flex;flex-direction:column;}
 .pAccent{height:6px;width:100%;}
-.pBody{padding:14px 16px 16px;}
-.pTop{display:flex;justify-content:space-between;gap:10px;}
+.pBody{padding:14px 16px 16px;flex:1;display:flex;flex-direction:column;}
+.pTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
 .pName{font-size:14px;font-weight:1100;color:#0f172a;}
 .pDesc{margin-top:3px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
-.pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:1050;border:1px solid rgba(15,23,42,0.10);}
+.pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:1050;border:1px solid rgba(15,23,42,0.10);white-space:nowrap;}
 .pStats{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .mini{border-radius:16px;padding:10px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
 .miniLabel{font-size:11px;font-weight:950;color:rgba(15,23,42,0.55);}
