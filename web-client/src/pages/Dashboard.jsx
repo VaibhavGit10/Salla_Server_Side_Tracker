@@ -1,22 +1,8 @@
-// web-client/src/pages/Dashboard.jsx
-// ✅ Full end-to-end Dashboard page with enhancements:
-// - KPI stats (24h + previous 24h delta)
-// - Traffic Trend (7 days) ✅ 4 platforms comparison in different colours
-// - Platform Distribution donut (24h) ✅ legend always shows all 4 platforms
-// - ✅ 4 Platform Analytics Cards (GA4 + Meta + TikTok + Snapchat)
-// - Robust events response unwrapping
-// - Robust date parsing for Catalyst/ISO
-// - Safe payload parsing for revenue
-// - Polling + visibility refresh
-// - ✅ Proper alignment using CSS grid for platform cards
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
 import { fetchDashboardSummary } from "../api/platforms.api";
 import { fetchEventLogs } from "../api/logs.api";
-
-/* ---------------- Platform Config ---------------- */
 
 const PLATFORMS = [
   {
@@ -55,8 +41,6 @@ const PLATFORMS = [
 
 const EMPTY_7 = [0, 0, 0, 0, 0, 0, 0];
 
-/* ---------------- Helpers ---------------- */
-
 function computeDelayMs() {
   const hidden = document.hidden;
   const base = hidden ? 12000 : 5000;
@@ -72,7 +56,6 @@ function safeParse(v) {
   }
 }
 
-// Catalyst may return "YYYY-MM-DD HH:mm:ss" for CREATEDTIME
 function parseDateish(input) {
   const s = String(input || "").trim();
   if (!s) return null;
@@ -100,8 +83,8 @@ function formatMoney(n) {
 }
 
 function unwrapStatsResponse(resp) {
-  const a = resp?.data; // axios response
-  const b = resp; // apiGet direct body
+  const a = resp?.data;
+  const b = resp;
   const candidates = [a?.data, a, b?.data, b];
 
   for (const c of candidates) {
@@ -132,7 +115,6 @@ function clampNonNeg(n) {
 function diffStats(cur24, stats48) {
   const curBy = cur24?.by_status || {};
   const b48By = stats48?.by_status || {};
-
   const mk = (key) => clampNonNeg((b48By[key] || 0) - (curBy[key] || 0));
 
   const prevBy = {
@@ -158,7 +140,7 @@ function dayLabelsLast7() {
 }
 
 function dayIndexMonFirst(date) {
-  const d = date.getUTCDay(); // 0=Sun..6=Sat
+  const d = date.getUTCDay();
   return d === 0 ? 6 : d - 1;
 }
 
@@ -196,7 +178,6 @@ function normalizeRow(r) {
 function unwrapEventRows(evResp) {
   const a = evResp?.data;
   const b = evResp;
-
   const candidates = [a?.data, a, b?.data, b].filter(Boolean);
 
   for (const c of candidates) {
@@ -221,12 +202,9 @@ function unwrapEventRows(evResp) {
   return [];
 }
 
-/* ---------------- Page ---------------- */
-
 export default function Dashboard() {
   const [storeId, setStoreIdState] = useState(() => getStoreId() || "");
   const storeRef = useRef(storeId);
-
   const [loading, setLoading] = useState(true);
 
   const [stats24, setStats24] = useState({ total: 0, by_status: {} });
@@ -250,7 +228,6 @@ export default function Dashboard() {
     return obj;
   });
 
-  /* ✅ store changes (same-tab + cross-tab) */
   useEffect(() => {
     const syncStore = () => setStoreIdState(getStoreId() || "");
 
@@ -275,7 +252,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  /* ✅ polling: stats + events-derived charts */
   useEffect(() => {
     storeRef.current = storeId;
 
@@ -362,6 +338,8 @@ export default function Dashboard() {
           if (status === "sent") {
             const payload = safeParse(getAny(row, ["payload"]));
             const amount =
+              payload?.data?.amounts?.total?.amount ??
+              payload?.data?.amounts?.sub_total?.amount ??
               payload?.data?.total?.amount ??
               payload?.data?.total ??
               payload?.total?.amount ??
@@ -409,7 +387,6 @@ export default function Dashboard() {
       setTrafficByPlatform(bucketsByPlat);
       setPlatformMetrics(metrics);
 
-      // ✅ Always include all 4 platforms in distribution (even if 0)
       const distItems = PLATFORMS.map((p) => ({
         platform: p.key,
         value: byPlatform.get(p.key) || 0,
@@ -474,8 +451,6 @@ export default function Dashboard() {
     };
   }, [storeId]);
 
-  /* -------- Derived metrics -------- */
-
   const summary = useMemo(() => {
     const by = stats24.by_status || {};
     const total = clampNonNeg(stats24.total);
@@ -509,9 +484,10 @@ export default function Dashboard() {
       { label: "Total Events", value: summary.total, delta: pctDelta(summary.total, prevSummary.total), icon: "📤", tone: "blue" },
       { label: "Sent", value: summary.sent, delta: pctDelta(summary.sent, prevSummary.sent), icon: "✅", tone: "green" },
       { label: "Failed", value: summary.failed, delta: pctDelta(summary.failed, prevSummary.failed), icon: "❌", tone: "pink" },
-      { label: "Skipped", value: summary.skipped, delta: pctDelta(summary.skipped, prevSummary.skipped), icon: "⏭️", tone: "yellow" }
+      { label: "Skipped", value: summary.skipped, delta: pctDelta(summary.skipped, prevSummary.skipped), icon: "⏭️", tone: "yellow" },
+      { label: "Revenue", value: `SAR ${formatMoney(revenueSar)}`, delta: 0, icon: "💰", tone: "blue", isMoney: true }
     ];
-  }, [summary, prevSummary]);
+  }, [summary, prevSummary, revenueSar]);
 
   const trafficTrend = useMemo(() => {
     return {
@@ -547,11 +523,8 @@ export default function Dashboard() {
     });
   }, [platformMetrics]);
 
-  /* -------- Render -------- */
-
   return (
     <div className="dash">
-      {/* TOP BAR */}
       <div className="topbar">
         <div className="brandArea">
           <div className="logoBubble">∿</div>
@@ -570,24 +543,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI GRID */}
-      <div className="grid4">
+      <div className="grid5">
         {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="kpi" key={i}>
-                <Skeleton height={14} width="55%" />
-                <div style={{ marginTop: 12 }}>
-                  <Skeleton height={34} width="65%" />
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  <Skeleton height={12} width="45%" />
-                </div>
+          ? Array.from({ length: 5 }).map((_, i) => (
+            <div className="kpi" key={i}>
+              <Skeleton height={14} width="55%" />
+              <div style={{ marginTop: 12 }}>
+                <Skeleton height={34} width="65%" />
               </div>
-            ))
+              <div style={{ marginTop: 10 }}>
+                <Skeleton height={12} width="45%" />
+              </div>
+            </div>
+          ))
           : kpis.map((k) => <KPI key={k.label} {...k} />)}
       </div>
 
-      {/* MAIN GRID */}
       <div className="mainGrid">
         <div className="card premium">
           <div className="cardHead">
@@ -640,7 +611,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* PLATFORM CARDS (✅ proper aligned grid) */}
       <div className="platformGrid">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => (
@@ -664,8 +634,7 @@ export default function Dashboard() {
   );
 }
 
-/* KPI */
-function KPI({ label, value, delta, icon, tone }) {
+function KPI({ label, value, delta, icon, tone, isMoney }) {
   const d = Number(delta || 0);
   const isUp = d >= 0;
   const abs = Math.abs(d);
@@ -680,16 +649,13 @@ function KPI({ label, value, delta, icon, tone }) {
       <div className="kpiValue">{value}</div>
 
       <div className="kpiBottom">
-        <div className={`delta ${isUp ? "up" : "down"}`}>
-          {isUp ? "▲" : "▼"} {abs.toFixed(0)}%
-        </div>
+        <div className={`delta ${isUp ? "up" : "down"}`}>{isMoney ? "—" : `${isUp ? "▲" : "▼"} ${abs.toFixed(0)}%`}</div>
         <div className="kpiHint">vs previous 24h</div>
       </div>
     </div>
   );
 }
 
-/* Platform Card */
 function PlatformCard({ name, desc, pill, tone, accent, stats }) {
   return (
     <div className="pCard">
@@ -725,7 +691,6 @@ function StatMini({ label, value }) {
   );
 }
 
-/* ✅ Legend for Traffic Trend */
 function BarLegend({ series = [] }) {
   return (
     <div className="barLegend">
@@ -739,7 +704,6 @@ function BarLegend({ series = [] }) {
   );
 }
 
-/* Bar Chart */
 function GroupedBarChart({ labels = [], series = [] }) {
   const W = 980,
     H = 300;
@@ -784,7 +748,6 @@ function GroupedBarChart({ labels = [], series = [] }) {
   );
 }
 
-/* Donut (✅ safe for zeros + always show all platforms in legend) */
 function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
   const [activePlatform, setActivePlatform] = useState(null);
 
@@ -887,8 +850,6 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
   );
 }
 
-/* ---------------- CSS ---------------- */
-
 const css = `
 :root{
   --a:#AF1763;
@@ -920,9 +881,9 @@ const css = `
 .dotLive{width:10px;height:10px;border-radius:999px;background:var(--g);box-shadow:0 0 0 6px rgba(25,135,84,0.14);}
 .rangeChip{padding:10px 12px;border-radius:999px;background:rgba(13,202,240,0.12);border:1px solid rgba(13,202,240,0.22);font-size:12px;font-weight:950;color:#055a66;}
 
-.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;}
-@media (max-width:1100px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr));}}
-@media (max-width:560px){.dash{padding:12px;}.grid4{grid-template-columns:1fr;}}
+.grid5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;}
+@media (max-width:1250px){.grid5{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:560px){.dash{padding:12px;}.grid5{grid-template-columns:1fr;}}
 
 .mainGrid{
   display:grid;
@@ -1045,7 +1006,6 @@ const css = `
 .donutItemSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
 .donutPill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.75);color:rgba(15,23,42,0.75);}
 
-/* ✅ PERFECT alignment for platform cards */
 .platformGrid{
   display:grid;
   grid-template-columns: repeat(4, minmax(0,1fr));
