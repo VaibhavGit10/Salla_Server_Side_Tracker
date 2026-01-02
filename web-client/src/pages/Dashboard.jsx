@@ -1,49 +1,75 @@
-// web-client/src/pages/Dashboard.jsx
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
 import { fetchDashboardSummary } from "../api/platforms.api";
 
-/**
- * Active tab: ~2–3s
- * Hidden tab: ~8–10s
- * Adds slight jitter to avoid thundering herd
- */
 function computeDelayMs() {
   const hidden = document.hidden;
-  const base = hidden ? 9000 : 2500;
-  const jitter = Math.floor(Math.random() * 400) - 200; // +/-200ms
-  return Math.max(800, base + jitter);
+  const base = hidden ? 12000 : 5000; // dashboard can poll slower than logs
+  const jitter = Math.floor(Math.random() * 600) - 300;
+  return Math.max(1500, base + jitter);
 }
 
+// Robust unwrap for different apiGet styles:
+// - apiGet returns response.data -> {ok:true,data:{...}}
+// - or returns axios response -> {data:{ok:true,data:{...}}}
+function unwrapStatsResponse(resp) {
+  // 1) axios response
+  const a = resp?.data;
+  // 2) apiGet returning body directly
+  const b = resp;
+
+  // candidates in priority order
+  const candidates = [
+    a?.data,     // axios -> {ok:true, data:{...}}
+    a,           // axios -> {ok:true, data:{...}} (if no wrapper)
+    b?.data,     // direct -> {ok:true, data:{...}}
+    b            // direct -> stats or ok wrapper
+  ];
+
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+
+    // ok wrapper
+    if (c.ok === true && c.data && typeof c.data === "object") {
+      return {
+        total: Number(c.data.total || 0),
+        by_status: c.data.by_status || {}
+      };
+    }
+
+    // direct stats
+    if ("total" in c || "by_status" in c) {
+      return {
+        total: Number(c.total || 0),
+        by_status: c.by_status || {}
+      };
+    }
+  }
+
+  return null;
+}
+
+
 export default function Dashboard() {
-  // ✅ make storeId reactive (so dashboard updates when you change store in Connections)
   const [storeId, setStoreIdState] = useState(() => getStoreId() || "");
+  const storeRef = useRef(storeId);
 
   const [loading, setLoading] = useState(true);
 
-  // ✅ backend-driven stats (defaults)
   const [stats, setStats] = useState({
     total: 0,
     by_status: {}
   });
 
-  // ✅ poll control
-  const abortRef = useRef(null);
-  const timerRef = useRef(null);
-  const storeRef = useRef(storeId);
-
   // ✅ listen for store changes (same-tab + cross-tab)
   useEffect(() => {
     const syncStore = () => setStoreIdState(getStoreId() || "");
 
-    // ✅ cross-tab updates
     const onStorage = (e) => {
       if (e.key === "selected_store_id") syncStore();
     };
 
-    // ✅ same-tab updates
     const onStoreChange = (e) => {
       const next = e?.detail?.storeId;
       if (next) setStoreIdState(String(next));
@@ -61,82 +87,61 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ✅ realtime-like stats polling (safe + efficient)
+  // ✅ Real-time polling for dashboard stats
   useEffect(() => {
     storeRef.current = storeId;
 
-    const stop = () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
+    let alive = true;
+    let timer = null;
 
-      if (abortRef.current) abortRef.current.abort();
-      abortRef.current = null;
+    const stop = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
     };
 
-    // ✅ CRITICAL GUARD
-    if (!storeId || !String(storeId).trim()) {
-      stop();
-      setStats({ total: 0, by_status: {} });
-      setLoading(false);
-      return () => stop();
-    }
-
-    stop();
-    setLoading(true);
-
     const scheduleNext = (ms) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => tick(false), ms);
+      stop();
+      timer = setTimeout(() => tick(false), ms);
     };
 
     const tick = async (initial) => {
-      // cancel any in-flight
-      if (abortRef.current) abortRef.current.abort();
-
-      const ac = new AbortController();
-      abortRef.current = ac;
-
       try {
-        const resp = await fetchDashboardSummary(storeId, 24);
-        // If store changed mid-flight, ignore
-        if (storeRef.current !== storeId) return;
-
-        const data = resp?.data || resp;
-        if (data) {
-          setStats({
-            total: Number(data.total || 0),
-            by_status: data.by_status || {}
-          });
+        if (!storeId || !String(storeId).trim()) {
+          if (alive) {
+            setStats({ total: 0, by_status: {} });
+            setLoading(false);
+          }
+          return;
         }
 
+        if (initial) setLoading(true);
+
+        const resp = await fetchDashboardSummary(storeId, 24);
+
+        // if store changed mid-flight, ignore
+        if (!alive || storeRef.current !== storeId) return;
+
+        const next = unwrapStatsResponse(resp);
+        if (next) setStats(next);
+
         if (initial) setLoading(false);
 
-        // ✅ dynamic refresh cadence
         scheduleNext(computeDelayMs());
       } catch (e) {
-        if (e?.name === "AbortError") return;
-
         if (initial) setLoading(false);
-
-        // ✅ error backoff (don’t hammer backend)
-        scheduleNext(6000);
+        scheduleNext(9000);
       }
     };
 
-    // ✅ resume fast when tab becomes visible
     const onVis = () => {
-      if (!document.hidden) {
-        // refresh immediately on focus
-        tick(false);
-      }
+      if (!document.hidden) tick(false);
     };
 
     document.addEventListener("visibilitychange", onVis);
-
-    // start immediately
     tick(true);
 
     return () => {
+      alive = false;
       document.removeEventListener("visibilitychange", onVis);
       stop();
     };
@@ -146,6 +151,7 @@ export default function Dashboard() {
   const summary = useMemo(() => {
     const by = stats.by_status || {};
     const total = Number(stats.total || 0);
+
     const sent = Number(by.sent || 0);
     const failed = Number(by.failed || 0);
     const skipped = Number(by.skipped || 0);
@@ -154,17 +160,10 @@ export default function Dashboard() {
     const delivered = sent + failed; // only attempted deliveries
     const successRate = delivered > 0 ? (sent / delivered) * 100 : 0;
 
-    return {
-      total,
-      sent,
-      failed,
-      skipped,
-      pending,
-      successRate
-    };
+    return { total, sent, failed, skipped, pending, successRate };
   }, [stats]);
 
-  // keep your existing demo visuals for now
+  // keep your existing demo visuals
   const platformDistribution = [{ platform: "GA4", value: 100, color: "#0D6EFD" }];
 
   const trafficTrend = useMemo(
@@ -186,10 +185,7 @@ export default function Dashboard() {
         forwarded: summary.total,
         successRate: Number(summary.successRate.toFixed(1)),
         revenue: 0,
-        loss:
-          summary.total > 0
-            ? Number(((summary.skipped / summary.total) * 100).toFixed(1))
-            : 0
+        loss: summary.total > 0 ? Number(((summary.skipped / summary.total) * 100).toFixed(1)) : 0
       }
     }
   ];
@@ -457,7 +453,7 @@ function GroupedBarChart({ labels = [], series = [] }) {
   );
 }
 
-/* ✅ FIXED + ALIGNED Donut Distribution */
+/* Donut */
 function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
   const [active, setActive] = useState(null);
 
@@ -481,18 +477,10 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
 
   return (
     <div className="donutWrap">
-      {/* LEFT */}
       <div className="donutLeft">
         <div className="donutStage">
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={r}
-              fill="none"
-              stroke="rgba(15,23,42,0.08)"
-              strokeWidth={stroke}
-            />
+            <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(15,23,42,0.08)" strokeWidth={stroke} />
 
             <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
               {slices.map((a, i) => (
@@ -533,7 +521,6 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
         </div>
       </div>
 
-      {/* RIGHT */}
       <div className="donutRight">
         <div className="donutLegend">
           {slices.map((a, i) => (

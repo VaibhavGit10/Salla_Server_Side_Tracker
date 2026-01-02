@@ -1,5 +1,3 @@
-// web-client/src/pages/Logs.jsx
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import Container from "../components/layout/Container";
 import Skeleton from "../components/ui/Skeleton";
@@ -76,13 +74,11 @@ export default function Logs() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [platformFilter, setPlatformFilter] = useState("ALL");
 
-  // cursor + safety refs
-  const cursorRef = useRef(null);     // highest ROWID seen
-  const storeRef = useRef(storeId);   // storeId at time of request
+  const cursorRef = useRef(null);
+  const storeRef = useRef(storeId);
   const timerRef = useRef(null);
-  const seenRef = useRef(new Set());  // de-dupe by ROWID
+  const seenRef = useRef(new Set());
 
-  // ✅ listen for store changes (same-tab + cross-tab)
   useEffect(() => {
     const syncStore = () => setStoreIdState(getStoreId() || "");
 
@@ -107,7 +103,6 @@ export default function Logs() {
     };
   }, []);
 
-  // ✅ fetch + polling (cursor based)
   useEffect(() => {
     storeRef.current = storeId;
 
@@ -146,7 +141,6 @@ export default function Logs() {
           cursor: initial ? null : cursorRef.current
         });
 
-        // if store changed mid-flight, ignore
         if (storeRef.current !== storeId) return;
 
         const rows = resp?.data || [];
@@ -154,7 +148,6 @@ export default function Logs() {
 
         const mapped = Array.isArray(rows) ? rows.map(mapRowToLog) : [];
 
-        // de-dupe by rowid
         const fresh = [];
         for (const m of mapped) {
           const key = String(m.rowid || "");
@@ -169,9 +162,7 @@ export default function Logs() {
           setLoading(false);
           cursorRef.current = nextCursor;
         } else {
-          // cursor mode returns newer items in ASC order -> prepend newest to top
           if (fresh.length) {
-            // fresh is ASC by ROWID -> reverse so newest is first
             const newestFirst = [...fresh].reverse();
             setEvents((prev) => [...newestFirst, ...prev]);
           }
@@ -221,11 +212,8 @@ export default function Logs() {
         value.toLowerCase().includes(query) ||
         time.toLowerCase().includes(query);
 
-      const matchesStatus =
-        statusFilter === "ALL" ? true : status.toUpperCase() === statusFilter;
-
-      const matchesPlatform =
-        platformFilter === "ALL" ? true : platform.toUpperCase() === platformFilter;
+      const matchesStatus = statusFilter === "ALL" ? true : status.toUpperCase() === statusFilter;
+      const matchesPlatform = platformFilter === "ALL" ? true : platform.toUpperCase() === platformFilter;
 
       return matchesQuery && matchesStatus && matchesPlatform;
     });
@@ -246,6 +234,7 @@ export default function Logs() {
             ))}
           </div>
         </div>
+        <style>{logsCss}</style>
       </Container>
     );
   }
@@ -262,6 +251,7 @@ export default function Logs() {
             </div>
           </div>
         </div>
+        <style>{logsCss}</style>
       </Container>
     );
   }
@@ -326,13 +316,11 @@ export default function Logs() {
                     <td><StatusBadge status={e.status} /></td>
                     <td>
                       <details className="payload">
-                        <summary className="payloadSummary">
-                          {payloadPreview(e.payload)}
-                        </summary>
+                        <summary className="payloadSummary">{payloadPreview(e.payload)}</summary>
                         <pre className="payloadPre">{safeJson(e.payload)}</pre>
                         {(e.last_error || e.last_response) && (
                           <pre className="payloadPre" style={{ marginTop: 10 }}>
-{`last_error: ${e.last_error || "-"}\nlast_response: ${e.last_response || "-"}`}
+                            {`last_error: ${e.last_error || "-"}\nlast_response: ${e.last_response || "-"}`}
                           </pre>
                         )}
                       </details>
@@ -352,7 +340,7 @@ export default function Logs() {
         </div>
       </div>
 
-      {/* keep your existing CSS + badges + utils below unchanged */}
+      <style>{logsCss}</style>
     </Container>
   );
 }
@@ -434,8 +422,203 @@ function safeJson(obj) {
 function payloadPreview(payload) {
   try {
     const str = JSON.stringify(payload ?? {});
-    return str.length > 60 ? str.slice(0, 60) + "…" : str;
+    return str.length > 80 ? str.slice(0, 80) + "…" : str;
   } catch {
     return "View";
   }
 }
+
+/* ---------- Logs CSS ---------- */
+const logsCss = `
+.logCard{
+  background: rgba(255,255,255,0.86);
+  border: 1px solid rgba(15,23,42,0.10);
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.logToolbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  padding: 14px;
+  border-bottom: 1px solid rgba(15,23,42,0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72));
+  flex-wrap: wrap;
+}
+
+.logSearch{
+  flex: 1;
+  min-width: 260px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(15,23,42,0.10);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.searchIcon{
+  opacity: 0.65;
+  font-weight: 1000;
+  user-select:none;
+}
+
+.searchInput{
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-weight: 900;
+  font-size: 13px;
+  background: transparent;
+  color: rgba(15,23,42,0.82);
+}
+
+.select{
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15,23,42,0.10);
+  background: rgba(255,255,255,0.92);
+  font-weight: 950;
+  font-size: 13px;
+  color: rgba(15,23,42,0.78);
+  outline: none;
+}
+
+.tableWrap{
+  width: 100%;
+  overflow: auto;
+}
+
+.logTable{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 920px;
+}
+
+.logTable thead th{
+  text-align: left;
+  font-size: 12px;
+  font-weight: 1100;
+  color: rgba(15,23,42,0.72);
+  padding: 12px 14px;
+  position: sticky;
+  top: 0;
+  background: rgba(255,255,255,0.92);
+  border-bottom: 1px solid rgba(15,23,42,0.08);
+  z-index: 1;
+}
+
+.logTable tbody td{
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(15,23,42,0.06);
+  vertical-align: top;
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(15,23,42,0.82);
+}
+
+.logTable tbody tr:hover td{
+  background: rgba(15,23,42,0.02);
+}
+
+.colTime{ width: 110px; }
+.colPlatform{ width: 110px; }
+.colType{ width: 180px; }
+.colOrder{ width: 140px; }
+.colValue{ width: 120px; }
+.colStatus{ width: 120px; }
+.colPayload{ width: auto; }
+
+.muted{ color: rgba(15,23,42,0.55); font-weight: 900; }
+.mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+.typePill{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:999px;
+  border: 1px solid rgba(15,23,42,0.10);
+  background: rgba(15,23,42,0.04);
+  font-size: 12px;
+  font-weight: 1100;
+}
+
+.payload{
+  max-width: 560px;
+}
+
+.payloadSummary{
+  cursor: pointer;
+  user-select: none;
+  font-weight: 950;
+  color: rgba(15,23,42,0.78);
+}
+
+.payload[open] .payloadSummary{
+  color: rgba(15,23,42,0.92);
+}
+
+.payloadPre{
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15,23,42,0.10);
+  background: rgba(15,23,42,0.03);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 900;
+  overflow:auto;
+}
+
+.logFooter{
+  display:flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.84);
+}
+
+.emptyInline{
+  padding: 18px;
+  text-align: center;
+  color: rgba(15,23,42,0.60);
+  font-weight: 950;
+}
+
+.emptyState{
+  padding: 44px 18px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  gap: 8px;
+}
+
+.emptyIcon{
+  font-size: 32px;
+}
+
+.emptyTitle{
+  font-size: 16px;
+  font-weight: 1150;
+  color: rgba(15,23,42,0.82);
+}
+
+.emptySub{
+  max-width: 560px;
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(15,23,42,0.55);
+}
+
+@media (max-width: 820px){
+  .logToolbar{ padding: 12px; }
+  .logSearch{ min-width: 100%; }
+  .select{ flex:1; min-width: 160px; }
+}
+`;

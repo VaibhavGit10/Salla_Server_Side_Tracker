@@ -1,3 +1,5 @@
+// appsail/datastore/events.repo.js
+
 import { getDatastore, getZCQL } from "./client.js";
 
 const TABLE = "events";
@@ -12,6 +14,38 @@ function safeStringify(value) {
   } catch {
     return "{}";
   }
+}
+
+// ✅ Catalyst CREATEDTIME comparisons work best with: "YYYY-MM-DD HH:mm:ss" (UTC)
+function toCatalystDateTimeUTC(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const pad = (n) => String(n).padStart(2, "0");
+
+  return (
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+  );
+}
+
+// ✅ pick COUNT robustly (Catalyst aggregate sometimes returns different key names)
+function pickCount(row) {
+  if (!row || typeof row !== "object") return 0;
+
+  if (row.count !== undefined) return Number(row.count) || 0;
+  if (row.COUNT !== undefined) return Number(row.COUNT) || 0;
+
+  // fallback: find any key containing "count"
+  for (const k of Object.keys(row)) {
+    const lk = k.toLowerCase();
+    if (lk.includes("count")) {
+      const n = Number(row[k]);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+
+  return 0;
 }
 
 export async function saveEvent(req, event) {
@@ -201,31 +235,53 @@ export async function listEventsCursor(req, { store_id, limit = 50, cursor } = {
 }
 
 /**
- * Web-client: basic stats counts by status (optionally last N hours).
+ * ✅ FIXED: Web-client stats counts by status (last N hours).
+ * Uses CREATEDTIME window with Catalyst-friendly datetime format.
  */
 export async function getEventStats(req, { store_id, hours = 24 } = {}) {
   if (!store_id) return null;
 
   const zcqlClient = getZCQL(req);
-  const sinceIso = new Date(Date.now() - Number(hours) * 3600 * 1000).toISOString();
+
+  const hrs = Number(hours);
+  const safeHours = Number.isFinite(hrs) && hrs > 0 ? hrs : 24;
+
+  const since = new Date(Date.now() - safeHours * 3600 * 1000);
+  const sinceStr = toCatalystDateTimeUTC(since);
+
+  // If conversion failed, fallback: stats without time window (still gives totals)
+  const timeClause = sinceStr ? `AND CREATEDTIME >= '${escZcql(sinceStr)}'` : "";
 
   const q = `
     SELECT status, COUNT(ROWID) AS count
     FROM ${TABLE}
     WHERE store_id = '${escZcql(store_id)}'
-      AND CREATEDTIME >= '${escZcql(sinceIso)}'
+      ${timeClause}
     GROUP BY status
   `;
 
   const result = await zcqlClient.executeZCQLQuery(q);
-  const rows = (result || []).map((r) => r[TABLE] || r.events || r).filter(Boolean);
 
-  const out = { store_id, since: sinceIso, total: 0, by_status: {} };
+  // Aggregate result shape can vary; normalize safely
+  const rows = (result || [])
+    .map((r) => r?.[TABLE] || r?.events || r)
+    .filter(Boolean);
+
+  const out = {
+    store_id,
+    since: sinceStr || null,
+    hours: safeHours,
+    total: 0,
+    by_status: {}
+  };
+
   for (const r of rows) {
-    const status = String(r.status || "unknown");
-    const count = Number(r.count || r.COUNT || 0);
-    out.by_status[status] = count;
+    const status = String(r.status || "unknown").toLowerCase();
+    const count = pickCount(r);
+
+    out.by_status[status] = (out.by_status[status] || 0) + count;
     out.total += count;
   }
+
   return out;
 }
