@@ -203,7 +203,7 @@ function unwrapEventRows(evResp) {
 }
 
 export default function Dashboard() {
-  const [storeId, setStoreIdState] = useState(() => getStoreId() || "");
+ const [storeId, setStoreIdState] = useState(() => String(getStoreId() || "").trim());
   const storeRef = useRef(storeId);
   const [loading, setLoading] = useState(true);
 
@@ -229,28 +229,31 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    const syncStore = () => setStoreIdState(getStoreId() || "");
+  const syncStore = () => {
+    const next = String(getStoreId() || "").trim();
+    setStoreIdState((prev) => (prev === next ? prev : next));
+  };
 
-    const onStorage = (e) => {
-      if (e.key === "selected_store_id") syncStore();
-    };
+  const onStorage = (e) => {
+    if (e.key === "selected_store_id") syncStore();
+  };
 
-    const onStoreChange = (e) => {
-      const next = e?.detail?.storeId;
-      if (next) setStoreIdState(String(next));
-      else syncStore();
-    };
+  const onStoreChange = (e) => {
+    const next = String(e?.detail?.storeId || "").trim();
+    if (next) setStoreIdState((prev) => (prev === next ? prev : next));
+    else syncStore();
+  };
 
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("store_id_changed", onStoreChange);
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("store_id_changed", onStoreChange);
 
-    syncStore();
+  syncStore();
 
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("store_id_changed", onStoreChange);
-    };
-  }, []);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("store_id_changed", onStoreChange);
+  };
+}, []);
 
   useEffect(() => {
     storeRef.current = storeId;
@@ -430,10 +433,10 @@ export default function Dashboard() {
         hydrateFromEvents(rows, Date.now(), Number(s24.total || 0));
 
         if (initial) setLoading(false);
-        scheduleNext(computeDelayMs());
+//scheduleNext(computeDelayMs());
       } catch {
         if (initial) setLoading(false);
-        scheduleNext(9000);
+       // scheduleNext(9000);
       }
     };
 
