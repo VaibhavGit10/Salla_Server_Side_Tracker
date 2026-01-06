@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
 import { fetchDashboardSummary } from "../api/platforms.api";
 import { fetchEventLogs } from "../api/logs.api";
+import { useTranslation } from "../utils/i18n";
+import metaIcon from "../assets/metaIcon.webp";
 
 const PLATFORMS = [
   {
@@ -11,7 +13,7 @@ const PLATFORMS = [
     desc: "Analytics events",
     pill: "Tracking",
     color: "#0D6EFD",
-    accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)"
+    accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)",
   },
   {
     key: "META",
@@ -19,7 +21,7 @@ const PLATFORMS = [
     desc: "CAPI events",
     pill: "Ads",
     color: "#7C3AED",
-    accent: "linear-gradient(90deg,#7C3AED,#EC4899)"
+    accent: "linear-gradient(90deg,#7C3AED,#EC4899)",
   },
   {
     key: "TIKTOK",
@@ -27,7 +29,7 @@ const PLATFORMS = [
     desc: "Pixel events",
     pill: "Ads",
     color: "#111827",
-    accent: "linear-gradient(90deg,#111827,#14B8A6)"
+    accent: "linear-gradient(90deg,#111827,#14B8A6)",
   },
   {
     key: "SNAPCHAT",
@@ -35,18 +37,11 @@ const PLATFORMS = [
     desc: "Conversions API",
     pill: "Ads",
     color: "#F59E0B",
-    accent: "linear-gradient(90deg,#F59E0B,#EF4444)"
-  }
+    accent: "linear-gradient(90deg,#F59E0B,#EF4444)",
+  },
 ];
 
 const EMPTY_7 = [0, 0, 0, 0, 0, 0, 0];
-
-function computeDelayMs() {
-  const hidden = document.hidden;
-  const base = hidden ? 12000 : 5000;
-  const jitter = Math.floor(Math.random() * 600) - 300;
-  return Math.max(1500, base + jitter);
-}
 
 function safeParse(v) {
   try {
@@ -91,16 +86,17 @@ function unwrapStatsResponse(resp) {
     if (!c || typeof c !== "object") continue;
 
     if (c.ok === true && c.data && typeof c.data === "object") {
+      const d = c.data?.data && typeof c.data.data === "object" ? c.data.data : c.data;
       return {
-        total: Number(c.data.total || 0),
-        by_status: c.data.by_status || {}
+        total: Number(d.total || 0),
+        by_status: d.by_status || d.byStatus || {},
       };
     }
 
-    if ("total" in c || "by_status" in c) {
+    if ("total" in c || "by_status" in c || "byStatus" in c) {
       return {
         total: Number(c.total || 0),
-        by_status: c.by_status || {}
+        by_status: c.by_status || c.byStatus || {},
       };
     }
   }
@@ -112,36 +108,11 @@ function clampNonNeg(n) {
   return Number.isFinite(x) ? Math.max(0, x) : 0;
 }
 
-function diffStats(cur24, stats48) {
-  const curBy = cur24?.by_status || {};
-  const b48By = stats48?.by_status || {};
-  const mk = (key) => clampNonNeg((b48By[key] || 0) - (curBy[key] || 0));
-
-  const prevBy = {
-    sent: mk("sent"),
-    failed: mk("failed"),
-    skipped: mk("skipped"),
-    pending: mk("pending")
-  };
-
-  const prevTotal = clampNonNeg((stats48?.total || 0) - (cur24?.total || 0));
-  return { total: prevTotal, by_status: prevBy };
-}
-
 function pctDelta(current, previous) {
   const c = clampNonNeg(current);
   const p = clampNonNeg(previous);
   if (p <= 0) return c > 0 ? 100 : 0;
   return ((c - p) / p) * 100;
-}
-
-function dayLabelsLast7() {
-  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-}
-
-function dayIndexMonFirst(date) {
-  const d = date.getUTCDay();
-  return d === 0 ? 6 : d - 1;
 }
 
 function normPlatform(p) {
@@ -188,6 +159,10 @@ function unwrapEventRows(evResp) {
       if (Array.isArray(d.items)) return d.items.map(normalizeRow).filter(Boolean);
       if (Array.isArray(d.data)) return d.data.map(normalizeRow).filter(Boolean);
       if (Array.isArray(d)) return d.map(normalizeRow).filter(Boolean);
+      if (d.data && typeof d.data === "object") {
+        if (Array.isArray(d.data.items)) return d.data.items.map(normalizeRow).filter(Boolean);
+        if (Array.isArray(d.data.data)) return d.data.data.map(normalizeRow).filter(Boolean);
+      }
     }
 
     if (Array.isArray(c.items)) return c.items.map(normalizeRow).filter(Boolean);
@@ -202,9 +177,106 @@ function unwrapEventRows(evResp) {
   return [];
 }
 
+function PlatformIcon({ platform, size = 18 }) {
+  const key = String(platform || "").toUpperCase();
+
+  if (key === "GA4") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
+        <path
+          fill="#EA4335"
+          d="M24 20.1v7.7h10.7c-.4 2-1.6 3.7-3.3 4.8v5h5.4c3.2-2.9 5-7.2 5-12.5 0-1.2-.1-2.1-.3-3H24Z"
+        />
+        <path
+          fill="#34A853"
+          d="M24 42c4.6 0 8.5-1.5 11.3-4.1l-5.4-5c-1.5 1-3.4 1.7-5.9 1.7-4.5 0-8.2-3-9.6-7.1H8.9v5.2C11.7 38.2 17.4 42 24 42Z"
+        />
+        <path
+          fill="#4285F4"
+          d="M14.4 27.5c-.4-1.1-.6-2.2-.6-3.5s.2-2.4.6-3.5V15.3H8.9C7.7 17.7 7 20.7 7 24s.7 6.3 1.9 8.7l5.5-5.2Z"
+        />
+        <path
+          fill="#FBBC05"
+          d="M24 13.5c2.5 0 4.7.9 6.5 2.6l4.8-4.8C32.4 8.5 28.6 7 24 7 17.4 7 11.7 10.8 8.9 15.3l5.5 5.2c1.4-4.1 5.1-7 9.6-7Z"
+        />
+      </svg>
+    );
+  }
+
+  if (key === "META") {
+    return (
+      <img
+        src={metaIcon}
+        alt="Meta"
+        className="platImg"
+        style={{ width: size, height: size }}
+        loading="eager"
+      />
+    );
+  }
+
+  if (key === "TIKTOK") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" style={{ display: "block" }}>
+        <circle cx="32" cy="32" r="30" fill="#0B0F19" />
+        <path
+          d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
+          fill="#25F4EE"
+          opacity="0.95"
+          transform="translate(-1.2,1.2)"
+        />
+        <path
+          d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
+          fill="#FE2C55"
+          opacity="0.9"
+          transform="translate(1.1,-1.0)"
+        />
+        <path
+          d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
+          fill="#FFFFFF"
+        />
+      </svg>
+    );
+  }
+
+  if (key === "SNAPCHAT") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+        <path
+          d="M32 14
+             c-7.2 0-12.3 5.6-12.3 13.5
+             0 2.4.6 4.6 1 6.1
+             .4 1.4-.3 2.2-1.3 2.8
+             -1.2.8-3.4 1.7-5.3 2.1
+             -1.2.3-1.6 1.7-.9 2.6
+             1.2 1.6 3.6 2.7 6.2 3.1
+             .7 4.5 4.1 8.6 7.8 10.4
+             1.6.8 3.2 1 4.8 1
+             1.6 0 3.2-.2 4.8-1
+             3.7-1.8 7.1-5.9 7.8-10.4
+             2.6-.4 5-1.5 6.2-3.1
+             .7-.9.3-2.3-.9-2.6
+             -1.9-.4-4.1-1.3-5.3-2.1
+             -1-.6-1.7-1.4-1.3-2.8
+             .4-1.5 1-3.7 1-6.1
+             C44.3 19.6 39.2 14 32 14Z"
+          fill="#FFFFFF"
+          stroke="#111827"
+          strokeWidth="2.6"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+
+  return <span />;
+}
+
+const __DASHBOARD_FETCHED_FOR = new Set();
+
 export default function Dashboard() {
- const [storeId, setStoreIdState] = useState(() => String(getStoreId() || "").trim());
-  const storeRef = useRef(storeId);
+  const { t } = useTranslation();
+  const [storeId] = useState(() => String(getStoreId() || "").trim());
   const [loading, setLoading] = useState(true);
 
   const [stats24, setStats24] = useState({ total: 0, by_status: {} });
@@ -222,6 +294,16 @@ export default function Dashboard() {
     return obj;
   });
 
+  const [trafficByPlatformPrevWeek, setTrafficByPlatformPrevWeek] = useState(() => {
+    const obj = {};
+    for (const p of PLATFORMS) obj[p.key] = [...EMPTY_7];
+    return obj;
+  });
+
+  const [trafficMode, setTrafficMode] = useState("daily");
+  const [trafficTimeframe, setTrafficTimeframe] = useState("current");
+  const [trafficAnchorMs, setTrafficAnchorMs] = useState(() => Date.now());
+
   const [platformMetrics, setPlatformMetrics] = useState(() => {
     const obj = {};
     for (const p of PLATFORMS) obj[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
@@ -229,72 +311,49 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-  const syncStore = () => {
-    const next = String(getStoreId() || "").trim();
-    setStoreIdState((prev) => (prev === next ? prev : next));
-  };
-
-  const onStorage = (e) => {
-    if (e.key === "selected_store_id") syncStore();
-  };
-
-  const onStoreChange = (e) => {
-    const next = String(e?.detail?.storeId || "").trim();
-    if (next) setStoreIdState((prev) => (prev === next ? prev : next));
-    else syncStore();
-  };
-
-  window.addEventListener("storage", onStorage);
-  window.addEventListener("store_id_changed", onStoreChange);
-
-  syncStore();
-
-  return () => {
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener("store_id_changed", onStoreChange);
-  };
-}, []);
-
-  useEffect(() => {
-    storeRef.current = storeId;
-
-    let alive = true;
-    let timer = null;
-
-    const stop = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-    };
-
-    const scheduleNext = (ms) => {
-      stop();
-      timer = setTimeout(() => tick(false), ms);
-    };
+    let cancelled = false;
 
     const resetAll = () => {
       setStats24({ total: 0, by_status: {} });
       setStatsPrev24({ total: 0, by_status: {} });
       setRevenueSar(0);
 
-      const t = {};
-      for (const p of PLATFORMS) t[p.key] = [...EMPTY_7];
-      setTrafficByPlatform(t);
+      const t1 = {};
+      for (const p of PLATFORMS) t1[p.key] = [...EMPTY_7];
+      setTrafficByPlatform(t1);
+
+      const tPrev = {};
+      for (const p of PLATFORMS) tPrev[p.key] = [...EMPTY_7];
+      setTrafficByPlatformPrevWeek(tPrev);
 
       const m = {};
-      for (const p of PLATFORMS) m[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
+      for (const p of PLATFORMS) {
+        m[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
+      }
       setPlatformMetrics(m);
 
       setPlatformDist(PLATFORMS.map((p) => ({ platform: p.key, value: 0, color: p.color })));
+      setTrafficAnchorMs(Date.now());
     };
 
     const hydrateFromEvents = (rawRows, nowMs, fallbackTotal = 0) => {
       const rows = (rawRows || []).map(normalizeRow).filter(Boolean);
 
-      const last7Ms = nowMs - 7 * 24 * 3600 * 1000;
-      const last24Ms = nowMs - 24 * 3600 * 1000;
+      const oneDayMs = 24 * 3600 * 1000;
+      const last7Ms = nowMs - 7 * oneDayMs;
+      const last14Ms = nowMs - 14 * oneDayMs;
+      const last24Ms = nowMs - 24 * oneDayMs;
+      const last48Ms = nowMs - 48 * oneDayMs;
 
-      const bucketsByPlat = {};
-      for (const p of PLATFORMS) bucketsByPlat[p.key] = [...EMPTY_7];
+      const startCur = last7Ms;
+      const startPrev = last14Ms;
+
+      const bucketsByPlatCur = {};
+      const bucketsByPlatPrev = {};
+      for (const p of PLATFORMS) {
+        bucketsByPlatCur[p.key] = [...EMPTY_7];
+        bucketsByPlatPrev[p.key] = [...EMPTY_7];
+      }
 
       const byPlatform = new Map();
 
@@ -303,6 +362,8 @@ export default function Dashboard() {
         metrics[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
       }
 
+      const curBy = { sent: 0, failed: 0, skipped: 0, pending: 0 };
+      const prevBy = { sent: 0, failed: 0, skipped: 0, pending: 0 };
       let parsedCount = 0;
 
       for (const row of rows) {
@@ -317,26 +378,30 @@ export default function Dashboard() {
           "modifiedtime",
           "modified_time",
           "timestamp",
-          "time"
+          "time",
         ]);
 
         const created = parseDateish(createdRaw);
         if (!created) continue;
-        parsedCount++;
 
-        const t = created.getTime();
+        parsedCount++;
+        const tm = created.getTime();
+
         const platform = normPlatform(getAny(row, ["last_platform", "platform", "source"]));
         const platKey = PLATFORMS.some((p) => p.key === platform) ? platform : "GA4";
 
-        if (t >= last24Ms) {
+        const statusRaw = String(getAny(row, ["status"]) ?? "").toLowerCase();
+        const status =
+          statusRaw === "sent" || statusRaw === "failed" || statusRaw === "skipped" || statusRaw === "pending"
+            ? statusRaw
+            : "";
+
+        if (tm >= last24Ms) {
           byPlatform.set(platKey, (byPlatform.get(platKey) || 0) + 1);
           metrics[platKey].total += 1;
 
-          const status = String(getAny(row, ["status"]) ?? "").toLowerCase();
-          if (status === "sent") metrics[platKey].sent += 1;
-          else if (status === "failed") metrics[platKey].failed += 1;
-          else if (status === "skipped") metrics[platKey].skipped += 1;
-          else if (status === "pending") metrics[platKey].pending += 1;
+          if (status) metrics[platKey][status] += 1;
+          if (status) curBy[status] += 1;
 
           if (status === "sent") {
             const payload = safeParse(getAny(row, ["payload"]));
@@ -353,106 +418,145 @@ export default function Dashboard() {
             const num = Number(amount);
             if (Number.isFinite(num)) metrics[platKey].revenue += num;
           }
+        } else if (tm >= last48Ms) {
+          if (status) prevBy[status] += 1;
         }
 
-        if (t >= last7Ms) {
-          const idx = dayIndexMonFirst(created);
-          bucketsByPlat[platKey][idx] += 1;
+        if (tm >= last7Ms) {
+          const idx = Math.floor((tm - startCur) / oneDayMs);
+          if (idx >= 0 && idx < 7) bucketsByPlatCur[platKey][idx] += 1;
+        } else if (tm >= last14Ms) {
+          const idx = Math.floor((tm - startPrev) / oneDayMs);
+          if (idx >= 0 && idx < 7) bucketsByPlatPrev[platKey][idx] += 1;
         }
       }
 
-      const bucketsSum = Object.values(bucketsByPlat).flat().reduce((a, b) => a + b, 0);
+      const bucketsSum = Object.values(bucketsByPlatCur).flat().reduce((a, b) => a + b, 0);
       const distSum = Array.from(byPlatform.values()).reduce((a, b) => a + b, 0);
 
       if ((parsedCount === 0 || (bucketsSum === 0 && distSum === 0)) && fallbackTotal > 0) {
-        const fallback = {};
-        for (const p of PLATFORMS) fallback[p.key] = [...EMPTY_7];
-        fallback.GA4[dayIndexMonFirst(new Date())] = fallbackTotal;
+        const fallbackCur = {};
+        const fallbackPrev = {};
+        for (const p of PLATFORMS) {
+          fallbackCur[p.key] = [...EMPTY_7];
+          fallbackPrev[p.key] = [...EMPTY_7];
+        }
 
-        setTrafficByPlatform(fallback);
+        fallbackCur.GA4[6] = fallbackTotal;
+
+        setTrafficByPlatform(fallbackCur);
+        setTrafficByPlatformPrevWeek(fallbackPrev);
+
         setPlatformMetrics((prev) => ({
           ...prev,
-          GA4: { ...prev.GA4, total: fallbackTotal }
+          GA4: { ...prev.GA4, total: fallbackTotal },
         }));
 
         setPlatformDist(
           PLATFORMS.map((p) => ({
             platform: p.key,
             value: p.key === "GA4" ? fallbackTotal : 0,
-            color: p.color
+            color: p.color,
           }))
         );
 
         setRevenueSar(0);
-        return;
+        setTrafficAnchorMs(nowMs);
+
+        return {
+          cur24: { total: fallbackTotal, by_status: { sent: 0, failed: 0, skipped: 0, pending: 0 } },
+          prev24: { total: 0, by_status: { sent: 0, failed: 0, skipped: 0, pending: 0 } },
+        };
       }
 
-      setTrafficByPlatform(bucketsByPlat);
+      setTrafficByPlatform(bucketsByPlatCur);
+      setTrafficByPlatformPrevWeek(bucketsByPlatPrev);
       setPlatformMetrics(metrics);
 
       const distItems = PLATFORMS.map((p) => ({
         platform: p.key,
         value: byPlatform.get(p.key) || 0,
-        color: p.color
+        color: p.color,
       })).sort((a, b) => b.value - a.value);
 
       setPlatformDist(distItems);
 
       const totalRevenue = Object.values(metrics).reduce((s, m) => s + (Number(m.revenue) || 0), 0);
       setRevenueSar(totalRevenue);
+      setTrafficAnchorMs(nowMs);
+
+      const curTotal = curBy.sent + curBy.failed + curBy.skipped + curBy.pending;
+      const prevTotal = prevBy.sent + prevBy.failed + prevBy.skipped + prevBy.pending;
+
+      return {
+        cur24: { total: curTotal, by_status: curBy },
+        prev24: { total: prevTotal, by_status: prevBy },
+      };
     };
 
-    const tick = async (initial) => {
+    const loadOnce = async () => {
+      const guardKey = storeId || "__NO_STORE__";
+      if (__DASHBOARD_FETCHED_FOR.has(guardKey)) {
+        setLoading(false);
+        return;
+      }
+      __DASHBOARD_FETCHED_FOR.add(guardKey);
+
       try {
-        if (!storeId || !String(storeId).trim()) {
-          if (alive) {
-            resetAll();
-            setLoading(false);
-          }
+        setLoading(true);
+
+        if (!storeId) {
+          resetAll();
+          setLoading(false);
           return;
         }
 
-        if (initial) setLoading(true);
+        const ts = Date.now();
 
         const [r24, r48, ev] = await Promise.all([
           fetchDashboardSummary(storeId, 24),
           fetchDashboardSummary(storeId, 48),
-          fetchEventLogs({ storeId, limit: 2000 })
+          fetchEventLogs({ storeId, limit: 2000, cursor: null, _ts: ts }),
         ]);
 
-        if (!alive || storeRef.current !== storeId) return;
+        if (cancelled) return;
 
         const s24 = unwrapStatsResponse(r24) || { total: 0, by_status: {} };
         const s48 = unwrapStatsResponse(r48) || { total: 0, by_status: {} };
-        const prev = diffStats(s24, s48);
-
-        setStats24(s24);
-        setStatsPrev24(prev);
 
         const rows = unwrapEventRows(ev);
-        hydrateFromEvents(rows, Date.now(), Number(s24.total || 0));
+        const computed = hydrateFromEvents(rows, ts, Number(s24.total || 0));
 
-        if (initial) setLoading(false);
-//scheduleNext(computeDelayMs());
+        const useComputed = (computed?.cur24?.total || 0) > 0 || rows.length > 0 || Number(s24.total || 0) === 0;
+
+        if (useComputed) {
+          setStats24(computed.cur24);
+          setStatsPrev24(computed.prev24);
+        } else {
+          const curBy = s24.by_status || {};
+          const b48By = s48.by_status || {};
+          const mk = (key) => clampNonNeg((b48By[key] || 0) - (curBy[key] || 0));
+
+          setStats24(s24);
+          setStatsPrev24({
+            total: clampNonNeg((s48?.total || 0) - (s24?.total || 0)),
+            by_status: { sent: mk("sent"), failed: mk("failed"), skipped: mk("skipped"), pending: mk("pending") },
+          });
+        }
+
+        setLoading(false);
       } catch {
-        if (initial) setLoading(false);
-       // scheduleNext(9000);
+        if (cancelled) return;
+        setLoading(false);
       }
     };
 
-    const onVis = () => {
-      if (!document.hidden) tick(false);
-    };
-
-    document.addEventListener("visibilitychange", onVis);
-    tick(true);
+    loadOnce();
 
     return () => {
-      alive = false;
-      document.removeEventListener("visibilitychange", onVis);
-      stop();
+      cancelled = true;
     };
-  }, [storeId]);
+  }, []);
 
   const summary = useMemo(() => {
     const by = stats24.by_status || {};
@@ -478,30 +582,121 @@ export default function Dashboard() {
       sent: clampNonNeg(by.sent),
       failed: clampNonNeg(by.failed),
       skipped: clampNonNeg(by.skipped),
-      pending: clampNonNeg(by.pending)
+      pending: clampNonNeg(by.pending),
     };
   }, [statsPrev24]);
 
   const kpis = useMemo(() => {
+    const IconTotal = (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z" fill="currentColor" opacity="0.18" />
+        <path
+          d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+        <path d="M9 8h6M9 12h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+
+    const IconSent = (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+
+    const IconFailed = (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10Z" fill="currentColor" opacity="0.18" />
+        <path d="M12 22a10 10 0 1 0-10-10 10 10 0 0 0 10 10Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M15 9 9 15M9 9l6 6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
+    );
+
+    const IconSkipped = (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 7v10l8-5-8-5Z" fill="currentColor" opacity="0.18" />
+        <path d="M7 7v10l8-5-8-5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M17 7v10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+
+    const IconRevenue = (
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3a9 9 0 1 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M12 7v10" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" />
+        <path
+          d="M15 9.2c0-1.3-1.3-2.2-3-2.2s-3 .9-3 2.2 1.1 2 3 2.3 3 1 3 2.3-1.3 2.2-3 2.2-3-.9-3-2.2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+
     return [
-      { label: "Total Events", value: summary.total, delta: pctDelta(summary.total, prevSummary.total), icon: "📤", tone: "blue" },
-      { label: "Sent", value: summary.sent, delta: pctDelta(summary.sent, prevSummary.sent), icon: "✅", tone: "green" },
-      { label: "Failed", value: summary.failed, delta: pctDelta(summary.failed, prevSummary.failed), icon: "❌", tone: "pink" },
-      { label: "Skipped", value: summary.skipped, delta: pctDelta(summary.skipped, prevSummary.skipped), icon: "⏭️", tone: "yellow" },
-      { label: "Revenue", value: `SAR ${formatMoney(revenueSar)}`, delta: 0, icon: "💰", tone: "blue", isMoney: true }
+      { label: t("kpiTotalEvents"), value: summary.total, delta: pctDelta(summary.total, prevSummary.total), icon: IconTotal, tone: "blue" },
+      { label: t("kpiSent"), value: summary.sent, delta: pctDelta(summary.sent, prevSummary.sent), icon: IconSent, tone: "green" },
+      { label: t("kpiFailed"), value: summary.failed, delta: pctDelta(summary.failed, prevSummary.failed), icon: IconFailed, tone: "pink" },
+      { label: t("kpiSkipped"), value: summary.skipped, delta: pctDelta(summary.skipped, prevSummary.skipped), icon: IconSkipped, tone: "yellow" },
+      { label: t("kpiRevenue"), value: `SAR ${formatMoney(revenueSar)}`, delta: 0, icon: IconRevenue, tone: "blue", isMoney: true },
     ];
-  }, [summary, prevSummary, revenueSar]);
+  }, [summary, prevSummary, revenueSar, t]);
 
   const trafficTrend = useMemo(() => {
+    const activeBuckets = trafficTimeframe === "current" ? trafficByPlatform : trafficByPlatformPrevWeek;
+    const dayMs = 24 * 3600 * 1000;
+
+    if (trafficMode === "weekly") {
+      const labels = PLATFORMS.map((p) => p.name);
+
+      const curTotals = PLATFORMS.map((p) => (trafficByPlatform[p.key] || EMPTY_7).reduce((a, b) => a + b, 0));
+      const prevTotals = PLATFORMS.map((p) => (trafficByPlatformPrevWeek[p.key] || EMPTY_7).reduce((a, b) => a + b, 0));
+
+      return {
+        mode: "weekly",
+        subtitle: t("trafficWeeklySubtitle"),
+        labels,
+        series: [
+          { name: t("trafficCurWeek"), color: "#0D6EFD", data: curTotals },
+          { name: t("trafficPrevWeek"), color: "#94A3B8", data: prevTotals },
+        ],
+      };
+    }
+
+    const subtitle = trafficTimeframe === "current" ? t("trafficCurWeekDaily") : t("trafficPrevWeekDaily");
+
+    const labels = [];
+    if (trafficTimeframe === "current") {
+      const start = trafficAnchorMs - 7 * dayMs;
+      for (let i = 0; i < 7; i += 1) {
+        const d = new Date(start + i * dayMs);
+        labels.push(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+      }
+    } else {
+      const start = trafficAnchorMs - 14 * dayMs;
+      for (let i = 0; i < 7; i += 1) {
+        const d = new Date(start + i * dayMs);
+        labels.push(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+      }
+    }
+
     return {
-      labels: dayLabelsLast7(),
+      mode: "daily",
+      subtitle,
+      labels,
       series: PLATFORMS.map((p) => ({
+        platformKey: p.key,
         name: p.name,
         color: p.color,
-        data: trafficByPlatform[p.key] || EMPTY_7
-      }))
+        data: activeBuckets[p.key] || EMPTY_7,
+      })),
     };
-  }, [trafficByPlatform]);
+  }, [trafficByPlatform, trafficByPlatformPrevWeek, trafficMode, trafficTimeframe, trafficAnchorMs, t]);
 
   const platformCards = useMemo(() => {
     return PLATFORMS.map((p) => {
@@ -511,6 +706,7 @@ export default function Dashboard() {
       const loss = m.total > 0 ? (m.skipped / m.total) * 100 : 0;
 
       return {
+        platformKey: p.key,
         name: p.name,
         desc: p.desc,
         pill: p.pill,
@@ -520,8 +716,8 @@ export default function Dashboard() {
           forwarded: m.total || 0,
           successRate: Number(successRate.toFixed(1)),
           revenue: Number((m.revenue || 0).toFixed(2)),
-          loss: Number(loss.toFixed(1))
-        }
+          loss: Number(loss.toFixed(1)),
+        },
       };
     });
   }, [platformMetrics]);
@@ -532,33 +728,33 @@ export default function Dashboard() {
         <div className="brandArea">
           <div className="logoBubble">∿</div>
           <div>
-            <div className="brandTitle">Salla Hub</div>
-            <div className="brandSub">Server-side tracking overview</div>
+            <div className="brandTitle">{t("dashTitle")}</div>
+            <div className="brandSub">{t("dashSubtitle")}</div>
           </div>
         </div>
 
         <div className="topbarRight">
           <div className="storeChip">
             <span className="dotLive" />
-            Store: <b>{storeId || "N/A"}</b>
+            {t("dashStore")}: <b>{storeId || "N/A"}</b>
           </div>
-          <div className="rangeChip">Last 24 hours</div>
+          <div className="rangeChip">{t("dashLast24h")}</div>
         </div>
       </div>
 
       <div className="grid5">
         {loading
           ? Array.from({ length: 5 }).map((_, i) => (
-            <div className="kpi" key={i}>
-              <Skeleton height={14} width="55%" />
-              <div style={{ marginTop: 12 }}>
-                <Skeleton height={34} width="65%" />
+              <div className="kpi" key={i}>
+                <Skeleton height={14} width="55%" />
+                <div style={{ marginTop: 12 }}>
+                  <Skeleton height={34} width="65%" />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <Skeleton height={12} width="45%" />
+                </div>
               </div>
-              <div style={{ marginTop: 10 }}>
-                <Skeleton height={12} width="45%" />
-              </div>
-            </div>
-          ))
+            ))
           : kpis.map((k) => <KPI key={k.label} {...k} />)}
       </div>
 
@@ -566,10 +762,10 @@ export default function Dashboard() {
         <div className="card premium">
           <div className="cardHead">
             <div>
-              <div className="cardTitle">Traffic Trend</div>
-              <div className="cardSub">Last 7 days (events/day)</div>
+              <div className="cardTitle">{t("trafficTrendTitle")}</div>
+              <div className="cardSub">{trafficTrend.subtitle}</div>
             </div>
-            <span className="pill blue">Traffic</span>
+            <span className="pill blue">{t("trafficPill")}</span>
           </div>
 
           <div className="cardBody">
@@ -577,10 +773,56 @@ export default function Dashboard() {
               <Skeleton height={300} />
             ) : (
               <>
+                <div className="trafficControls">
+                  <div className="trafficToggle">
+                    <button
+                      type="button"
+                      className={`toggleBtn ${trafficMode === "daily" ? "active" : ""}`}
+                      onClick={() => setTrafficMode("daily")}
+                    >
+                      {t("trafficDaily")}
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggleBtn ${trafficMode === "weekly" ? "active" : ""}`}
+                      onClick={() => setTrafficMode("weekly")}
+                    >
+                      {t("trafficWeekly")}
+                    </button>
+                  </div>
+
+                  {trafficMode === "daily" && (
+                    <div className="weekScroller">
+                      <div className="weekStrip">
+                        <button
+                          type="button"
+                          className={`toggleBtn ${trafficTimeframe === "current" ? "active" : ""}`}
+                          onClick={() => setTrafficTimeframe("current")}
+                        >
+                          {t("trafficThisWeek")}
+                        </button>
+                        <button
+                          type="button"
+                          className={`toggleBtn ${trafficTimeframe === "previous" ? "active" : ""}`}
+                          onClick={() => setTrafficTimeframe("previous")}
+                        >
+                          {t("trafficPreviousWeek")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <BarLegend series={trafficTrend.series} />
-                <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} />
+
+                <div className="chartScroll">
+                  <div className="chartInner">
+                    <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} />
+                  </div>
+                </div>
+
                 {trafficTrend.series.every((s) => (s.data || []).every((x) => Number(x || 0) === 0)) && (
-                  <div className="emptyChartNote">No traffic yet for the last 7 days.</div>
+                  <div className="emptyChartNote">{t("trafficEmpty")}</div>
                 )}
               </>
             )}
@@ -590,10 +832,10 @@ export default function Dashboard() {
         <div className="card">
           <div className="cardHead">
             <div>
-              <div className="cardTitle">Platform Distribution</div>
-              <div className="cardSub">Last 24 hours</div>
+              <div className="cardTitle">{t("platformDistTitle")}</div>
+              <div className="cardSub">{t("platformDistSubtitle")}</div>
             </div>
-            <span className="pill cyan">Sources</span>
+            <span className="pill cyan">{t("platformDistPill")}</span>
           </div>
 
           <div className="cardBody cardBodyDist">
@@ -608,7 +850,11 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <AnimatedDonutDistribution items={platformDist} centerTitle="Total Events" centerValue={formatMoney(summary.total)} />
+              <AnimatedDonutDistribution
+                items={platformDist}
+                centerTitle="Total Events"
+                centerValue={formatMoney(summary.total)}
+              />
             )}
           </div>
         </div>
@@ -652,33 +898,44 @@ function KPI({ label, value, delta, icon, tone, isMoney }) {
       <div className="kpiValue">{value}</div>
 
       <div className="kpiBottom">
-        <div className={`delta ${isUp ? "up" : "down"}`}>{isMoney ? "—" : `${isUp ? "▲" : "▼"} ${abs.toFixed(0)}%`}</div>
+        <div className={`delta ${isUp ? "up" : "down"}`}>
+          {isMoney ? "—" : `${isUp ? "▲" : "▼"} ${abs.toFixed(0)}%`}
+        </div>
         <div className="kpiHint">vs previous 24h</div>
       </div>
     </div>
   );
 }
 
-function PlatformCard({ name, desc, pill, tone, accent, stats }) {
+function PlatformCard({ platformKey, name, desc, pill, tone, accent, stats }) {
+  const { t } = useTranslation();
   return (
     <div className="pCard">
-      <div className="pAccent" style={{ background: accent }} />
       <div className="pBody">
         <div className="pTop">
-          <div>
-            <div className="pName">{name}</div>
-            <div className="pDesc">{desc}</div>
+          <div className="pLeft">
+            <div className="pLogo" style={{ background: accent }}>
+              <span className="pLogoInner">
+                <PlatformIcon platform={platformKey} size={20} />
+              </span>
+            </div>
+
+            <div>
+              <div className="pName">{name}</div>
+              <div className="pDesc">{desc}</div>
+            </div>
           </div>
+
           <div className="pPill" style={{ color: tone, background: `${tone}12`, borderColor: `${tone}26` }}>
             {pill}
           </div>
         </div>
 
         <div className="pStats">
-          <StatMini label="Forwarded" value={stats.forwarded} />
-          <StatMini label="Success" value={`${stats.successRate}%`} />
-          <StatMini label="Revenue" value={`SAR ${formatMoney(stats.revenue)}`} />
-          <StatMini label="Loss" value={`${stats.loss}%`} />
+          <StatMini label={t("platformCardForwarded")} value={stats.forwarded} />
+          <StatMini label={t("platformCardSuccess")} value={`${stats.successRate}%`} />
+          <StatMini label={t("platformCardRevenue")} value={`SAR ${formatMoney(stats.revenue)}`} />
+          <StatMini label={t("platformCardLoss")} value={`${stats.loss}%`} />
         </div>
       </div>
     </div>
@@ -699,7 +956,13 @@ function BarLegend({ series = [] }) {
     <div className="barLegend">
       {series.map((s) => (
         <div key={s.name} className="barLegendItem">
-          <span className="dot" style={{ background: s.color }} />
+          {s.platformKey ? (
+            <span className="platIcon sm">
+              <PlatformIcon platform={s.platformKey} size={16} />
+            </span>
+          ) : (
+            <span className="dot" style={{ background: s.color }} />
+          )}
           {s.name}
         </div>
       ))}
@@ -734,7 +997,15 @@ function GroupedBarChart({ labels = [], series = [] }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="300" style={{ display: "block" }}>
       {labels.map((lb, i) => (
-        <text key={lb} x={x0(i) + groupW / 2} y={H - 12} textAnchor="middle" fontSize="12" fill="rgba(15,23,42,0.55)" fontWeight="900">
+        <text
+          key={lb}
+          x={x0(i) + groupW / 2}
+          y={H - 12}
+          textAnchor="middle"
+          fontSize="12"
+          fill="rgba(15,23,42,0.55)"
+          fontWeight="900"
+        >
           {lb}
         </text>
       ))}
@@ -743,7 +1014,18 @@ function GroupedBarChart({ labels = [], series = [] }) {
         <g key={i}>
           {series.map((s, j) => {
             const v = s.data?.[i] ?? 0;
-            return <rect key={`${i}-${j}`} x={barX(i, j)} y={y(v)} width={barW} height={barH(v)} rx="10" fill={s.color} opacity={0.95} />;
+            return (
+              <rect
+                key={`${i}-${j}`}
+                x={barX(i, j)}
+                y={y(v)}
+                width={barW}
+                height={barH(v)}
+                rx="10"
+                fill={s.color}
+                opacity={0.95}
+              />
+            );
           })}
         </g>
       ))}
@@ -804,13 +1086,16 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
               ))}
             </g>
 
-            <foreignObject x="52" y="78" width="126" height="90">
+            <foreignObject x="44" y="74" width="142" height="96">
               <div className="donutCenter">
                 <div className="donutTitle">{centerTitle}</div>
                 <div className="donutValue">{centerValue}</div>
+
                 {activeSlice ? (
                   <div className="donutActive">
-                    <span className="dot" style={{ background: activeSlice.color }} />
+                    <span className="platIcon sm">
+                      <PlatformIcon platform={activeSlice.platform} size={16} />
+                    </span>
                     {activeSlice.platform}: <b>{Math.round(activeSlice.pct * 100)}%</b>
                   </div>
                 ) : (
@@ -836,7 +1121,10 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
                 onMouseLeave={() => setActivePlatform(null)}
                 style={{ opacity: !activePlatform || activePlatform === a.platform ? 1 : 0.6 }}
               >
-                <span className="dot" style={{ background: a.color }} />
+                <span className="platIcon">
+                  <PlatformIcon platform={a.platform} size={16} />
+                </span>
+
                 <div className="donutItemText">
                   <div className="donutItemName">{a.platform}</div>
                   <div className="donutItemSub">
@@ -888,13 +1176,51 @@ const css = `
 @media (max-width:1250px){.grid5{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:560px){.dash{padding:12px;}.grid5{grid-template-columns:1fr;}}
 
-.mainGrid{
-  display:grid;
-  grid-template-columns: 2fr 1fr;
-  gap:14px;
+.mainGrid {
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 14px;
   align-items: stretch;
 }
-@media (max-width:980px){.mainGrid{grid-template-columns:1fr;}}
+
+.mainGrid > .card {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.cardHead,
+.cardBody,
+.cardBodyDist {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.chartScroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.chartInner {
+  min-width: 720px;
+  max-width: 100%;
+}
+
+.donutWrap,
+.donutLeft,
+.donutRight,
+.donutLegend {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 980px) {
+  .mainGrid {
+    grid-template-columns: 1fr;
+  }
+}
 
 .card{
   border-radius:22px;
@@ -910,6 +1236,13 @@ const css = `
   min-height: 320px;
   position: relative;
 }
+.chartScroll{
+  width:100%;
+  overflow-x:auto;
+  padding-bottom:6px;
+  margin-top:4px;
+}
+.chartInner{min-width:720px;}
 .emptyChartNote{
   position:absolute;
   left:14px;
@@ -918,11 +1251,7 @@ const css = `
   font-weight:900;
   color:rgba(15,23,42,0.45);
 }
-.cardBodyDist{
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
+.cardBodyDist{display:flex;align-items:center;justify-content:center;}
 .cardHead{display:flex;justify-content:space-between;gap:12px;}
 .cardTitle{font-size:15px;font-weight:1150;color:#0f172a;}
 .cardSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
@@ -931,6 +1260,47 @@ const css = `
 .pill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);}
 .pill.blue{background:rgba(13,110,253,0.14);border-color:rgba(13,110,253,0.22);color:#083b8a;}
 .pill.cyan{background:rgba(13,202,240,0.14);border-color:rgba(13,202,240,0.22);color:#055a66;}
+
+.trafficControls{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:8px;
+  flex-wrap:wrap;
+}
+.trafficToggle{
+  display:flex;
+  gap:6px;
+  padding:3px;
+  border-radius:999px;
+  background:rgba(15,23,42,0.04);
+}
+.weekScroller{flex:1;min-width:0;}
+.weekStrip{
+  display:flex;
+  gap:6px;
+  overflow-x:auto;
+  padding:3px 0 2px;
+}
+.weekStrip::-webkit-scrollbar{height:4px;}
+.weekStrip::-webkit-scrollbar-thumb{background:rgba(15,23,42,0.25);border-radius:999px;}
+.toggleBtn{
+  border:0;
+  background:transparent;
+  padding:6px 11px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:1000;
+  color:rgba(15,23,42,0.60);
+  cursor:pointer;
+  white-space:nowrap;
+}
+.toggleBtn.active{
+  background:#0f172a;
+  color:#f9fafb;
+  box-shadow:0 10px 30px rgba(15,23,42,0.35);
+}
 
 .kpi{border-radius:22px;padding:16px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);}
 .kpiTop{display:flex;justify-content:space-between;align-items:center;}
@@ -1023,9 +1393,9 @@ const css = `
 }
 
 .pCard{border-radius:22px;overflow:hidden;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.86);display:flex;flex-direction:column;}
-.pAccent{height:6px;width:100%;}
 .pBody{padding:14px 16px 16px;flex:1;display:flex;flex-direction:column;}
 .pTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+.pLeft{display:flex;align-items:center;gap:10px;min-width:0;}
 .pName{font-size:14px;font-weight:1100;color:#0f172a;}
 .pDesc{margin-top:3px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
 .pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:1050;border:1px solid rgba(15,23,42,0.10);white-space:nowrap;}
@@ -1033,4 +1403,46 @@ const css = `
 .mini{border-radius:16px;padding:10px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
 .miniLabel{font-size:11px;font-weight:950;color:rgba(15,23,42,0.55);}
 .miniValue{margin-top:6px;font-size:14px;font-weight:1150;color:#0f172a;}
+
+.platIcon{
+  width: 28px;
+  height: 28px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(15,23,42,0.10);
+  box-shadow: 0 8px 16px rgba(2,6,23,0.10);
+  flex: 0 0 auto;
+}
+.platIcon.sm{
+  width: 22px;
+  height: 22px;
+  border-radius: 10px;
+  box-shadow: 0 6px 14px rgba(2,6,23,0.10);
+}
+.platImg{
+  object-fit: contain;
+  display: block;
+}
+
+.pLogo{
+  width: 40px;
+  height: 40px;
+  border-radius: 16px;
+  padding: 1px;
+  box-shadow: 0 12px 22px rgba(2,6,23,0.14);
+  border: 1px solid rgba(15,23,42,0.10);
+  flex: 0 0 auto;
+  display:grid;
+  place-items:center;
+}
+.pLogoInner{
+  width: 100%;
+  height: 100%;
+  border-radius: 15px;
+  background: rgba(255,255,255,0.92);
+  display:grid;
+  place-items:center;
+}
 `;

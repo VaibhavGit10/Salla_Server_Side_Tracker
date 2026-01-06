@@ -66,7 +66,7 @@ body {
     var(--pageBg);
 }
 
-.containerHeader {
+/* .containerHeader {
   width: 100%;
   padding: 18px;
   border-radius: 22px;
@@ -75,7 +75,7 @@ body {
     radial-gradient(circle at 92% 20%, rgba(13, 202, 240, 0.1), transparent 55%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.74));
   box-shadow: 0 22px 70px rgba(15, 23, 42, 0.1);
-}
+} */
 
 .containerTitleWrap {
   min-width: 0;

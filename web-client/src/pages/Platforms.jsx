@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import Container from "../components/layout/Container";
 import { validateGA4, fetchStores, saveGA4, fetchGA4 } from "../api/platforms.api";
 import { getStoreId, setStoreId } from "../utils/store";
+import { useTranslation } from "../utils/i18n";
+import metaIcon from "../assets/metaIcon.webp";
 
 export default function Platforms() {
+  const { t, lang, changeLanguage } = useTranslation();
+
   // ✅ active store (URL -> localStorage -> backend /platforms/stores fallback)
   const [activeStoreId, setActiveStoreId] = useState(() => getStoreId() || "");
 
@@ -116,8 +120,8 @@ export default function Platforms() {
     const id = String(nextId || "").trim();
     if (!id) return;
 
-    setStoreId(id);          // ✅ persists + dispatches store_id_changed event (your store.js)
-    setActiveStoreId(id);    // ✅ updates dropdown immediately
+    setStoreId(id); // ✅ persists + dispatches store_id_changed event (your store.js)
+    setActiveStoreId(id); // ✅ updates dropdown immediately
 
     // reset statuses for clarity on store switch
     setGa4Status("disconnected");
@@ -137,26 +141,26 @@ export default function Platforms() {
     setGa4Error("");
 
     try {
-      if (!activeStoreId) throw new Error("Store ID not set yet.");
+      if (!activeStoreId) throw new Error(t("storeIdNotSet"));
 
       const payload = {
         store_id: activeStoreId,
         measurement_id: ga4MeasurementId.trim(),
         api_secret: ga4ApiSecret.trim(),
-        enabled: true
+        enabled: true,
       };
 
       if (!payload.measurement_id || !payload.api_secret) {
-        throw new Error("Please enter Measurement ID and API Secret");
+        throw new Error(t("enterMeasurementIdAndSecret"));
       }
 
       await validateGA4(payload); // ✅ validate
-      await saveGA4(payload);     // ✅ persist (/platforms/ga4/connect)
+      await saveGA4(payload); // ✅ persist (/platforms/ga4/connect)
 
       setGa4Status("connected");
     } catch (err) {
       setGa4Status("disconnected");
-      setGa4Error(err?.message || "Failed to connect GA4");
+      setGa4Error(err?.message || t("failedToConnectGA4"));
     } finally {
       setGa4Loading(false);
     }
@@ -169,11 +173,11 @@ export default function Platforms() {
 
     try {
       if (!metaPixelId.trim() || !metaAccessToken.trim()) {
-        throw new Error("Please enter Pixel ID and Access Token");
+        throw new Error(t("enterPixelIdAndToken"));
       }
       setMetaStatus("connected");
     } catch (err) {
-      setMetaError(err?.message || "Failed to connect Meta");
+      setMetaError(err?.message || t("failedToConnectMeta"));
     } finally {
       setMetaLoading(false);
     }
@@ -186,11 +190,11 @@ export default function Platforms() {
 
     try {
       if (!ttPixelId.trim() || !ttAccessToken.trim()) {
-        throw new Error("Please enter Pixel ID and Access Token");
+        throw new Error(t("enterPixelIdAndToken"));
       }
       setTtStatus("connected");
     } catch (err) {
-      setTtError(err?.message || "Failed to connect TikTok");
+      setTtError(err?.message || t("failedToConnectTikTok"));
     } finally {
       setTtLoading(false);
     }
@@ -203,26 +207,53 @@ export default function Platforms() {
 
     try {
       if (!snapPixelId.trim() || !snapToken.trim()) {
-        throw new Error("Please enter Pixel ID and Token");
+        throw new Error(t("enterPixelIdAndToken"));
       }
       setSnapStatus("connected");
     } catch (err) {
-      setSnapError(err?.message || "Failed to connect Snap");
+      setSnapError(err?.message || t("failedToConnectSnap"));
     } finally {
       setSnapLoading(false);
     }
   }
 
   return (
-    <Container
-      title="Platform Connections"
-      subtitle={`Connect platforms for server-side tracking • Store: ${storeLabel}`}
-    >
+    <Container title={""} subtitle={""}>
+      {/* ✅ Header (Title/Sub + Language switcher inside header area) */}
+      <div className="pageHeader">
+
+        <div className="pageHeaderLeft">
+          <div className="pageSubtitle">
+            {t("connectPlatformsSubtitle")} • {t("store")}:{" "}
+            <span className="storePill">{storeLabel}</span>
+          </div>
+        </div>
+
+        <div className="pageHeaderRight">
+          <div className="langSwitcher">
+            <button
+              className={`langBtn ${lang === "en" ? "active" : ""}`}
+              onClick={() => changeLanguage("en")}
+              type="button"
+            >
+              {t("english")}
+            </button>
+            <button
+              className={`langBtn ${lang === "ar" ? "active" : ""}`}
+              onClick={() => changeLanguage("ar")}
+              type="button"
+            >
+              {t("arabic")}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ✅ Store picker */}
       <div className="storeRow">
         <div className="storeLeft">
-          <div className="storeTitle">Active Store</div>
-          <div className="storeSub">Pick which Salla store you want to configure</div>
+          <div className="storeTitle">{t("activeStore")}</div>
+          <div className="storeSub">{t("pickStore")}</div>
         </div>
 
         <div className="storeRight">
@@ -233,7 +264,7 @@ export default function Platforms() {
             disabled={storesLoading || (stores || []).length === 0}
           >
             <option value="" disabled>
-              {storesLoading ? "Loading stores..." : "Select a store"}
+              {storesLoading ? t("loadingStores") : t("selectStore")}
             </option>
             {(stores || []).map((s) => (
               <option key={String(s.store_id)} value={String(s.store_id)}>
@@ -246,185 +277,252 @@ export default function Platforms() {
 
       <div className="pxGrid">
         {/* Google / GA4 */}
-        <BrandCard
-          brand="google"
-          logo="G"
-          title="Google Analytics 4"
-          desc="Server-side purchase and conversion events to GA4"
-          status={ga4Status}
-        >
+        <BrandCard brand="google" title={t("googleAnalytics4")} desc={t("ga4Desc")} status={ga4Status}>
           {ga4Status !== "connected" ? (
             <>
               <div className="pxFormGrid">
                 <Field
-                  label="Measurement ID"
+                  label={t("measurementId")}
                   placeholder="G-XXXXXXX"
                   value={ga4MeasurementId}
                   onChange={setGa4MeasurementId}
                   disabled={ga4Loading}
                 />
                 <Field
-                  label="API Secret"
-                  placeholder="Enter API Secret"
+                  label={t("apiSecret")}
+                  placeholder={t("enterApiSecret")}
                   value={ga4ApiSecret}
                   onChange={setGa4ApiSecret}
                   disabled={ga4Loading}
                 />
               </div>
 
-              <button className="pxBtn btn-google" onClick={connectGA4} disabled={ga4Loading}>
-                {ga4Loading ? "Validating..." : "Connect GA4"}
-              </button>
+              <div className="actionsRow">
+                <button className="pxBtn" onClick={connectGA4} disabled={ga4Loading} type="button">
+                  {ga4Loading ? t("validating") : t("connectGA4")}
+                </button>
+              </div>
 
               {ga4Error && <div className="pxMsg err">{ga4Error}</div>}
             </>
           ) : (
-            <div className="pxMsg ok">✅ GA4 is successfully connected.</div>
+            <div className="pxMsg ok">✅ {t("ga4Connected")}</div>
           )}
         </BrandCard>
 
         {/* Meta */}
-        <BrandCard
-          brand="meta"
-          logo="M"
-          title="Meta"
-          desc="Server-side events to Meta Pixel (CAPI)"
-          status={metaStatus}
-        >
+        <BrandCard brand="meta" title={t("meta")} desc={t("metaDesc")} status={metaStatus}>
           {metaStatus !== "connected" ? (
             <>
               <div className="pxFormGrid">
                 <Field
-                  label="Pixel ID"
-                  placeholder="Meta Pixel ID"
+                  label={t("pixelId")}
+                  placeholder={t("pixelId")}
                   value={metaPixelId}
                   onChange={setMetaPixelId}
                   disabled={metaLoading}
                 />
                 <Field
-                  label="Access Token"
-                  placeholder="Access Token"
+                  label={t("accessToken")}
+                  placeholder={t("enterAccessToken")}
                   value={metaAccessToken}
                   onChange={setMetaAccessToken}
                   disabled={metaLoading}
                 />
               </div>
 
-              <button className="pxBtn btn-meta" onClick={connectMeta} disabled={metaLoading}>
-                {metaLoading ? "Validating..." : "Connect Meta"}
-              </button>
+              <div className="actionsRow">
+                <button className="pxBtn" onClick={connectMeta} disabled={metaLoading} type="button">
+                  {metaLoading ? t("validating") : t("connectMeta")}
+                </button>
+              </div>
 
               {metaError && <div className="pxMsg err">{metaError}</div>}
             </>
           ) : (
-            <div className="pxMsg ok">✅ Meta is successfully connected.</div>
+            <div className="pxMsg ok">✅ {t("metaConnected")}</div>
           )}
         </BrandCard>
 
         {/* TikTok */}
-        <BrandCard
-          brand="tiktok"
-          logo="T"
-          title="TikTok"
-          desc="Server-side events to TikTok Pixel (Events API)"
-          status={ttStatus}
-        >
+        <BrandCard brand="tiktok" title={t("tiktok")} desc={t("tiktokDesc")} status={ttStatus}>
           {ttStatus !== "connected" ? (
             <>
               <div className="pxFormGrid">
                 <Field
-                  label="Pixel ID"
-                  placeholder="TikTok Pixel ID"
+                  label={t("pixelId")}
+                  placeholder={t("pixelId")}
                   value={ttPixelId}
                   onChange={setTtPixelId}
                   disabled={ttLoading}
                 />
                 <Field
-                  label="Access Token"
-                  placeholder="Access Token"
+                  label={t("accessToken")}
+                  placeholder={t("enterAccessToken")}
                   value={ttAccessToken}
                   onChange={setTtAccessToken}
                   disabled={ttLoading}
                 />
               </div>
 
-              <button className="pxBtn btn-tiktok" onClick={connectTikTok} disabled={ttLoading}>
-                {ttLoading ? "Validating..." : "Connect TikTok"}
-              </button>
+              <div className="actionsRow">
+                <button className="pxBtn" onClick={connectTikTok} disabled={ttLoading} type="button">
+                  {ttLoading ? t("validating") : t("connectTikTok")}
+                </button>
+              </div>
 
               {ttError && <div className="pxMsg err">{ttError}</div>}
             </>
           ) : (
-            <div className="pxMsg ok">✅ TikTok is successfully connected.</div>
+            <div className="pxMsg ok">✅ {t("tiktokConnected")}</div>
           )}
         </BrandCard>
 
         {/* Snap */}
-        <BrandCard
-          brand="snap"
-          logo="S"
-          title="Snap"
-          desc="Server-side events to Snap Pixel (Conversions API)"
-          status={snapStatus}
-        >
+        <BrandCard brand="snap" title={t("snap")} desc={t("snapDesc")} status={snapStatus}>
           {snapStatus !== "connected" ? (
             <>
               <div className="pxFormGrid">
                 <Field
-                  label="Pixel ID"
-                  placeholder="Snap Pixel ID"
+                  label={t("pixelId")}
+                  placeholder={t("pixelId")}
                   value={snapPixelId}
                   onChange={setSnapPixelId}
                   disabled={snapLoading}
                 />
                 <Field
-                  label="Token"
-                  placeholder="Token"
+                  label={t("token")}
+                  placeholder={t("token")}
                   value={snapToken}
                   onChange={setSnapToken}
                   disabled={snapLoading}
                 />
               </div>
 
-              <button className="pxBtn btn-snap" onClick={connectSnap} disabled={snapLoading}>
-                {snapLoading ? "Validating..." : "Connect Snap"}
-              </button>
+              <div className="actionsRow">
+                <button className="pxBtn" onClick={connectSnap} disabled={snapLoading} type="button">
+                  {snapLoading ? t("validating") : t("connectSnap")}
+                </button>
+              </div>
 
               {snapError && <div className="pxMsg err">{snapError}</div>}
             </>
           ) : (
-            <div className="pxMsg ok">✅ Snap is successfully connected.</div>
+            <div className="pxMsg ok">✅ {t("snapConnected")}</div>
           )}
         </BrandCard>
       </div>
 
-      {/* ✅ styles unchanged (your original) */}
       <style>{`
+        /* Page header */
+        .pageHeader{
+          width:100%;
+          display:flex;
+          align-items:flex-start;
+          justify-content:space-between;
+          gap:16px;
+          padding: 12px 4px 6px;
+          margin-bottom: 12px;
+        }
+        .pageHeaderLeft{ min-width:0; }
+        .pageTitle{
+          font-size: 18px;
+          font-weight: 1200;
+          color:#0f172a;
+          letter-spacing: -0.2px;
+        }
+        .pageSubtitle{
+          margin-top:6px;
+          font-size: 12.5px;
+          font-weight: 850;
+          color: rgba(15,23,42,0.64);
+          display:flex;
+          flex-wrap:wrap;
+          gap:6px;
+          align-items:center;
+        }
+        .storePill{
+          display:inline-flex;
+          align-items:center;
+          padding: 4px 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(15,23,42,0.10);
+          background: rgba(15,23,42,0.03);
+          color: rgba(15,23,42,0.78);
+          font-weight: 1000;
+        }
+
+        /* Language Switcher (in header) */
+        .pageHeaderRight{ flex-shrink:0; }
+        .langSwitcher{
+          display:flex;
+          gap:8px;
+          justify-content:flex-end;
+        }
+        .langBtn{
+          padding:8px 12px;
+          border-radius:12px;
+          border:1px solid rgba(15,23,42,0.12);
+          background:#ffffff;
+          color:rgba(15,23,42,0.72);
+          font-size:12.5px;
+          font-weight:1000;
+          cursor:pointer;
+          transition:all 0.15s ease;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        }
+        .langBtn:hover{
+          background:rgba(15,23,42,0.04);
+          border-color:rgba(15,23,42,0.18);
+          transform: translateY(-1px);
+        }
+        .langBtn.active{
+          background: rgba(15,23,42,0.92);
+          border-color: rgba(15,23,42,0.92);
+          color:#ffffff;
+          box-shadow: 0 8px 18px rgba(15,23,42,0.18);
+        }
+        [dir="rtl"] .langSwitcher{ justify-content:flex-start; }
+        [dir="rtl"] .pageHeader{ flex-direction: row-reverse; }
+
+        @media (max-width: 780px){
+          .pageHeader{ flex-direction: column; align-items: stretch; }
+          [dir="rtl"] .pageHeader{ flex-direction: column; }
+          .pageHeaderRight{ display:flex; justify-content:flex-end; }
+          [dir="rtl"] .pageHeaderRight{ justify-content:flex-start; }
+        }
+
+        /* Store row */
         .storeRow{
           width:100%;
           display:flex;
           align-items:flex-end;
           justify-content:space-between;
           gap:12px;
-          padding: 12px 14px;
+          padding: 14px 16px;
           border-radius: 18px;
-          border: 1px solid rgba(15,23,42,0.08);
-          background: rgba(255,255,255,0.86);
-          margin-bottom: 14px;
+          border: 1px solid rgba(15,23,42,0.10);
+          background:#ffffff;
+          margin-bottom: 16px;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.06);
         }
-        .storeTitle{ font-size: 13px; font-weight: 1100; color:#111827; }
-        .storeSub{ margin-top: 4px; font-size: 12px; font-weight: 800; color: rgba(17,24,39,0.62); }
+        .storeTitle{ font-size: 13px; font-weight: 1100; color:#0f172a; }
+        .storeSub{ margin-top: 4px; font-size: 12px; font-weight: 850; color: rgba(15,23,42,0.60); }
         .storeRight{ min-width: 280px; max-width: 420px; width: 100%; }
         .storeSelect{
           width:100%;
           height:44px;
           border-radius:14px;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.96);
-          color:#111827;
+          border: 1px solid rgba(15,23,42,0.12);
+          background: #ffffff;
+          color:#0f172a;
           padding: 10px 12px;
           outline:none;
-          font-weight:900;
+          font-weight:950;
+        }
+        .storeSelect:focus{
+          border-color:rgba(2,6,23,0.28);
+          box-shadow:0 0 0 4px rgba(2,6,23,0.08);
         }
         @media (max-width: 780px){
           .storeRow{ flex-direction: column; align-items: stretch; }
@@ -432,143 +530,199 @@ export default function Platforms() {
         }
 
         /* Grid */
-        .pxGrid{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:14px; width:100%; }
+        .pxGrid{
+          display:grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap:16px;
+          width:100%;
+        }
         @media (max-width: 980px){ .pxGrid{ grid-template-columns: 1fr; } }
 
         /* Card */
         .bCard{
-          background:#fff;
-          border-radius:22px;
-          border: 1px solid rgba(15,23,42,0.08);
-          box-shadow: 0 20px 60px rgba(0,0,0,0.10);
+          background:#ffffff;
+          border-radius:18px;
+          border: 1px solid rgba(15,23,42,0.10);
+          box-shadow: 0 10px 26px rgba(2,6,23,0.08);
           overflow:hidden;
           position:relative;
+          transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+        .bCard:hover{
+          transform: translateY(-2px);
+          box-shadow: 0 14px 34px rgba(2,6,23,0.10);
         }
 
-        .bAccent{ height: 6px; width: 100%; }
-
         .bHead{
-          padding: 16px;
+          padding: 16px 18px;
           display:flex;
           align-items:flex-start;
           justify-content:space-between;
           gap: 12px;
-          border-bottom: 1px solid rgba(15,23,42,0.06);
+          border-bottom: 1px solid rgba(15,23,42,0.08);
+          background: linear-gradient(180deg, rgba(15,23,42,0.03), rgba(255,255,255,1));
         }
-
         .bLeft{ display:flex; gap:12px; min-width:0; align-items:center; }
 
+        /* Logo container (looks premium + fits real SVG logos) */
         .bLogo{
-          width:44px;height:44px;border-radius:16px;
-          display:grid;place-items:center;
-          font-weight:1100;color:#fff;
+          width:46px;
+          height:46px;
+          border-radius:16px;
+          display:grid;
+          place-items:center;
+          overflow:hidden;
           flex-shrink:0;
+          background: #ffffff;
+          border: 1px solid rgba(2,6,23,0.10);
+          box-shadow: 0 10px 18px rgba(2,6,23,0.14);
         }
+        .bLogo svg{ display:block; }
 
         .bTitle{
-          font-size:15px;font-weight:1100;color:#111827;
-          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+          font-size:15px;
+          font-weight:1150;
+          color:#0f172a;
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
         }
         .bDesc{
           margin-top:4px;
           font-size:12px;
-          font-weight:800;
-          color: rgba(17,24,39,0.62);
+          font-weight:850;
+          color: rgba(15,23,42,0.62);
         }
 
-        .bBody{ padding:16px; }
+        .bBody{ padding:16px 18px 18px; background:#ffffff; }
 
         .bStatus{
           padding: 8px 10px;
           border-radius:999px;
           font-size:11px;
-          font-weight:1000;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(17,24,39,0.04);
-          color: rgba(17,24,39,0.75);
+          font-weight:1100;
+          border: 1px solid rgba(15,23,42,0.12);
+          background: rgba(15,23,42,0.04);
+          color: rgba(15,23,42,0.72);
           flex-shrink:0;
         }
         .bStatus.ok{
-          background: rgba(25,135,84,0.12);
-          border-color: rgba(25,135,84,0.20);
-          color:#198754;
+          background: rgba(16,185,129,0.14);
+          border-color: rgba(16,185,129,0.24);
+          color:#0f6b4f;
         }
         .bStatus.off{
-          background: rgba(171,46,60,0.10);
-          border-color: rgba(171,46,60,0.20);
-          color:#AB2E3C;
+          background: rgba(239,68,68,0.12);
+          border-color: rgba(239,68,68,0.22);
+          color:#b91c1c;
         }
 
         .pxFormGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
         @media (max-width: 560px){ .pxFormGrid{ grid-template-columns: 1fr; } }
 
-        .fLabel{ display:block; font-size:12px; font-weight:1000; color: rgba(17,24,39,0.75); margin-bottom:6px; }
-
+        .fLabel{
+          display:block;
+          font-size:12px;
+          font-weight:1050;
+          color: rgba(15,23,42,0.76);
+          margin-bottom:6px;
+        }
         .fInput{
           width:100%;
           height:44px;
           border-radius:14px;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.96);
-          color:#111827;
+          border: 1px solid rgba(15,23,42,0.12);
+          background: #ffffff;
+          color:#0f172a;
           padding: 10px 12px;
           outline:none;
-          font-weight:800;
+          font-weight:900;
         }
-
+        .fInput::placeholder{ color: rgba(15,23,42,0.42); }
         .fInput:focus{
-          border-color: rgba(13,110,253,0.35);
-          box-shadow: 0 0 0 6px rgba(13,110,253,0.10);
+          border-color: rgba(2,6,23,0.28);
+          box-shadow: 0 0 0 4px rgba(2,6,23,0.08);
         }
 
+        .actionsRow{ display:flex; justify-content:flex-start; margin-top:12px; }
+        [dir="rtl"] .actionsRow{ justify-content:flex-end; }
+
+        /* Darker buttons */
         .pxBtn{
-          width:100%;
-          height:46px;
-          margin-top:12px;
-          border:0;
-          border-radius:16px;
+          display:inline-flex;
+          align-items:center;
+          justify-content:center;
+          padding:0 18px;
+          min-width:160px;
+          height:44px;
+          border: 1px solid rgba(2,6,23,0.18);
+          border-radius:14px;
           cursor:pointer;
-          font-weight:1100;
-          transition: transform 0.12s ease, opacity 0.12s ease;
-          color:#fff;
+          font-weight:1150;
+          letter-spacing: 0.2px;
+          transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+          color:#ffffff;
+          background: linear-gradient(135deg, #0b1220 0%, #0f172a 45%, #111827 100%);
+          box-shadow: 0 10px 20px rgba(2,6,23,0.20);
         }
-        .pxBtn:hover{ transform: translateY(-1px); }
-        .pxBtn:disabled{ opacity:0.65; cursor:not-allowed; transform:none; }
+        .pxBtn:hover{
+          transform: translateY(-1px);
+          box-shadow: 0 14px 26px rgba(2,6,23,0.26);
+        }
+        .pxBtn:disabled{
+          opacity:0.65;
+          cursor:not-allowed;
+          transform:none;
+          box-shadow: 0 8px 16px rgba(2,6,23,0.14);
+        }
 
         .pxMsg{
           margin-top:10px;
           padding:10px 12px;
-          border-radius:16px;
+          border-radius:14px;
           font-size:12px;
-          font-weight:1000;
+          font-weight:1050;
         }
         .pxMsg.ok{
-          background: rgba(25,135,84,0.12);
-          border: 1px solid rgba(25,135,84,0.20);
-          color:#198754;
+          background: rgba(16,185,129,0.12);
+          border: 1px solid rgba(16,185,129,0.22);
+          color:#0f6b4f;
         }
         .pxMsg.err{
-          background: rgba(171,46,60,0.10);
-          border: 1px solid rgba(171,46,60,0.20);
-          color:#AB2E3C;
+          background: rgba(239,68,68,0.10);
+          border: 1px solid rgba(239,68,68,0.20);
+          color:#b91c1c;
         }
 
-        .accent-google{ background: linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335); }
-        .accent-meta{ background: linear-gradient(90deg,#1877F2,#42A5F5); }
-        .accent-tiktok{ background: linear-gradient(90deg,#25F4EE,#000000,#FE2C55); }
-        .accent-snap{ background: linear-gradient(90deg,#FFFC00,#FFE75A); }
+        @media (max-width: 560px){
+          .bHead{ flex-direction: column; align-items:flex-start; }
+        }
 
-        .logo-google{ background: linear-gradient(135deg,#4285F4,#34A853); }
-        .logo-meta{ background: linear-gradient(135deg,#1877F2,#42A5F5); }
-        .logo-tiktok{ background: linear-gradient(135deg,#25F4EE,#FE2C55); }
-        .logo-snap{ background: linear-gradient(135deg,#FFFC00,#FFC107); color:#111827; }
+        /* Make sure images inside logo container are not affected by global img styles */
+.bLogo img.brandImg{
+  width: 34px !important;
+  height: 34px !important;
+  object-fit: contain !important;
+  display: block !important;
+  background: transparent !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
 
-        .btn-google{ background: linear-gradient(135deg,#4285F4,#34A853); }
-        .btn-meta{ background: linear-gradient(135deg,#1877F2,#42A5F5); }
-        .btn-tiktok{ background: linear-gradient(135deg,#25F4EE,#FE2C55); color:#111827; }
-        .btn-snap{ background: linear-gradient(135deg,#FFFC00,#FFC107); color:#111827; }
+/* Extra safety for Meta specifically */
+.bLogo img.brandImgMeta{
+  transform: translateZ(0);
+}
 
-        @media (max-width: 560px){ .bHead{ flex-direction: column; } }
+.pageHeader{
+  border: 1px solid rgba(15,23,42,0.10);
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 3px 10px rgba(2,6,23,0.06);
+}
+
+
       `}</style>
     </Container>
   );
@@ -576,14 +730,123 @@ export default function Platforms() {
 
 /* ---------- UI Helpers ---------- */
 
-function BrandCard({ brand, logo, title, desc, status, children }) {
+function BrandCard({ brand, title, desc, status, children }) {
+  const { t } = useTranslation();
   const connected = status === "connected";
+
+  function renderLogo() {
+    // ✅ More "real" looking brand logos (SVGs) — no external assets required.
+    if (brand === "google") {
+      return (
+        <svg viewBox="0 0 48 48" width="34" height="34" aria-hidden="true">
+          <path
+            fill="#EA4335"
+            d="M24 20.1v7.7h10.7c-.4 2-1.6 3.7-3.3 4.8v5h5.4c3.2-2.9 5-7.2 5-12.5 0-1.2-.1-2.1-.3-3H24Z"
+          />
+          <path
+            fill="#34A853"
+            d="M24 42c4.6 0 8.5-1.5 11.3-4.1l-5.4-5c-1.5 1-3.4 1.7-5.9 1.7-4.5 0-8.2-3-9.6-7.1H8.9v5.2C11.7 38.2 17.4 42 24 42Z"
+          />
+          <path
+            fill="#4285F4"
+            d="M14.4 27.5c-.4-1.1-.6-2.2-.6-3.5s.2-2.4.6-3.5V15.3H8.9C7.7 17.7 7 20.7 7 24s.7 6.3 1.9 8.7l5.5-5.2Z"
+          />
+          <path
+            fill="#FBBC05"
+            d="M24 13.5c2.5 0 4.7.9 6.5 2.6l4.8-4.8C32.4 8.5 28.6 7 24 7 17.4 7 11.7 10.8 8.9 15.3l5.5 5.2c1.4-4.1 5.1-7 9.6-7Z"
+          />
+        </svg>
+      );
+    }
+
+    if (brand === "meta") {
+      return (
+        <img
+          src={metaIcon}
+          alt="Meta"
+          className="brandImg brandImgMeta"
+          loading="eager"
+          referrerPolicy="no-referrer"
+        />
+      );
+    }
+
+
+    if (brand === "tiktok") {
+      // TikTok note with dual shadow colors (more "real" feeling)
+      return (
+        <svg viewBox="0 0 64 64" width="34" height="34" aria-hidden="true">
+          <circle cx="32" cy="32" r="30" fill="#0B0F19" />
+          {/* cyan shadow */}
+          <path
+            d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
+            fill="#25F4EE"
+            opacity="0.95"
+            transform="translate(-1.2,1.2)"
+          />
+          {/* red shadow */}
+          <path
+            d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
+            fill="#FE2C55"
+            opacity="0.9"
+            transform="translate(1.1,-1.0)"
+          />
+          {/* main white */}
+          <path
+            d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
+            fill="#FFFFFF"
+          />
+        </svg>
+      );
+    }
+
+    if (brand === "snap") {
+      // Snap ghost inside yellow circle (cleaner)
+      return (
+        <svg viewBox="0 0 64 64" width="34" height="34" aria-hidden="true">
+          <circle cx="32" cy="32" r="30" fill="#FFFC00" />
+          <path
+            d="M32 14
+               c-7.2 0-12.3 5.6-12.3 13.5
+               0 2.4.6 4.6 1 6.1
+               .4 1.4-.3 2.2-1.3 2.8
+               -1.2.8-3.4 1.7-5.3 2.1
+               -1.2.3-1.6 1.7-.9 2.6
+               1.2 1.6 3.6 2.7 6.2 3.1
+               .7 4.5 4.1 8.6 7.8 10.4
+               1.6.8 3.2 1 4.8 1
+               1.6 0 3.2-.2 4.8-1
+               3.7-1.8 7.1-5.9 7.8-10.4
+               2.6-.4 5-1.5 6.2-3.1
+               .7-.9.3-2.3-.9-2.6
+               -1.9-.4-4.1-1.3-5.3-2.1
+               -1-.6-1.7-1.4-1.3-2.8
+               .4-1.5 1-3.7 1-6.1
+               C44.3 19.6 39.2 14 32 14Z"
+            fill="#FFFFFF"
+            stroke="#111827"
+            strokeWidth="2.6"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M24.8 46.6c2.1 1.3 4.4 1.9 7.2 1.9s5.1-.6 7.2-1.9"
+            fill="none"
+            stroke="#111827"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    }
+
+    return <span>{String(brand || "").slice(0, 1).toUpperCase()}</span>;
+  }
+
   return (
     <section className="bCard">
-      <div className={`bAccent accent-${brand}`} />
       <div className="bHead">
         <div className="bLeft">
-          <div className={`bLogo logo-${brand}`}>{logo}</div>
+          <div className="bLogo">{renderLogo()}</div>
           <div style={{ minWidth: 0 }}>
             <div className="bTitle">{title}</div>
             <div className="bDesc">{desc}</div>
@@ -591,7 +854,7 @@ function BrandCard({ brand, logo, title, desc, status, children }) {
         </div>
 
         <div className={`bStatus ${connected ? "ok" : "off"}`}>
-          {connected ? "Connected" : "Disconnected"}
+          {connected ? t("connected") : t("disconnected")}
         </div>
       </div>
 
