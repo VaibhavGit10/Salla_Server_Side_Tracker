@@ -89,10 +89,11 @@ export async function getEventByRowId(req, rowid) {
   if (!rowid) return null;
 
   const zcqlClient = getZCQL(req);
+  // Use BigInt to avoid precision loss on 17-digit Catalyst ROWIDs (> MAX_SAFE_INTEGER)
   const q = `
     SELECT *
     FROM ${TABLE}
-    WHERE ROWID = ${Number(rowid)}
+    WHERE ROWID = ${BigInt(rowid).toString()}
     LIMIT 1
   `;
 
@@ -138,7 +139,7 @@ export async function updateEventStatus(req, rowid, status, metadata = {}) {
       const q = `
         SELECT ROWID, retries
         FROM ${TABLE}
-        WHERE ROWID = ${Number(rowid)}
+        WHERE ROWID = ${BigInt(rowid).toString()}
         LIMIT 1
       `;
       const result = await zcqlClient.executeZCQLQuery(q);

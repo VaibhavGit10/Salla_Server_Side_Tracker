@@ -5,6 +5,8 @@ import oauthRoutes from "./routes/oauth.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
 import platformRoutes from "./routes/platform.routes.js";
 import ga4Routes from "./routes/ga4.routes.js";
+import connectionsRoutes from "./routes/connections.routes.js";
+import jobsRoutes from "./routes/jobs.routes.js";
 
 import { rawBodySaver } from "./middlewares/rawBody.middleware.js";
 
@@ -26,8 +28,12 @@ export function startServer() {
     const isLocalhost =
       /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 
+    // CORS rule:
+    //  - Localhost dev: AppSail adds its own CORS (no gateway in the path).
+    //  - Catalyst-hosted UI: gateway already adds CORS; if AppSail also adds
+    //    them, the response gets DUPLICATE Access-Control-Allow-Origin headers
+    //    and the browser rejects it → "Failed to fetch".
     if (isLocalhost) {
-      // Allow localhost dev only
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
       res.setHeader(
@@ -38,16 +44,9 @@ export function startServer() {
         "Access-Control-Allow-Headers",
         "Content-Type, Authorization"
       );
-
-      // ✅ Only enable if you truly use cookies/auth via cookies
-      // res.setHeader("Access-Control-Allow-Credentials", "true");
-
-      if (req.method === "OPTIONS") return res.sendStatus(204);
-    } else {
-      // ✅ Hosted UI: do NOTHING (gateway handles CORS)
-      if (req.method === "OPTIONS") return res.sendStatus(204);
     }
 
+    if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
 
@@ -64,8 +63,10 @@ export function startServer() {
   app.use("/webhooks", webhookRoutes);
   app.use("/platforms", platformRoutes);
   app.use("/platforms/ga4", ga4Routes);
+  app.use("/api/connections", connectionsRoutes);
+  app.use("/jobs", jobsRoutes);
 
-  app.use((err, req, res, next) => {
+  app.use((err, _req, res, _next) => {
     console.error(err);
     res.status(500).json({ error: "Internal Server Error" });
   });

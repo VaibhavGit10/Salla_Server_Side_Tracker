@@ -2,7 +2,10 @@
 
 import { upsertGa4Settings } from "../datastore/ga4.repo.js";
 import { getEventStats, listEventsCursor } from "../datastore/events.repo.js";
-import { listStores } from "../datastore/stores.repo.js";
+import { listStores, updateStoreName } from "../datastore/stores.repo.js";
+import { getDispatchStatsForStore } from "../datastore/dispatch.repo.js";
+import { decrypt } from "../security/encryption.js";
+import { fetchStoreProfile } from "../services/salla.service.js";
 
 /**
  * POST /platforms/ga4/connect
@@ -47,8 +50,15 @@ export async function getStats(req, res) {
 
     if (!store_id) return res.status(400).json({ ok: false, error: "Missing store_id" });
 
-    const stats = await getEventStats(req, { store_id, hours });
-    return res.json({ ok: true, data: stats });
+    const [stats, dispatchStats] = await Promise.all([
+      getEventStats(req, { store_id, hours }),
+      getDispatchStatsForStore(req, store_id, hours)
+    ]);
+
+    return res.json({
+      ok: true,
+      data: { ...(stats || {}), dispatch_by_platform: dispatchStats || {} }
+    });
   } catch (err) {
     return res.status(500).json({
       ok: false,
@@ -78,16 +88,80 @@ export async function getEvents(req, res) {
 
 /**
  * GET /platforms/stores
- * Web-client: populate store dropdown (latest 50)
+ * Web-client: populate store dropdown (latest 50).
+ * Strips sensitive fields before returning.
  */
 export async function getStores(req, res) {
   try {
     const rows = await listStores(req, { limit: 50 });
-    return res.json({ ok: true, data: rows });
+    const safe = rows.map(({ access_token_enc, ROWID, ...rest }) => rest);
+    return res.json({ ok: true, data: safe });
   } catch (err) {
     return res.status(500).json({
       ok: false,
       error: err?.message || "Failed to list stores"
     });
+  }
+}
+
+/**
+ * PATCH /platforms/stores/:store_id/name
+ * Body: { name }
+ * Manually set a display name for a store.
+ */
+export async function setStoreName(req, res) {
+  try {
+    const { store_id } = req.params;
+    const name = String(req.body?.name || "").trim();
+
+    if (!store_id) return res.status(400).json({ ok: false, error: "Missing store_id" });
+    if (!name) return res.status(400).json({ ok: false, error: "Missing name" });
+
+    await updateStoreName(req, store_id, name);
+    return res.json({ ok: true, store_id, name });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || "Failed to update name" });
+  }
+}
+
+/**
+ * POST /platforms/stores/sync
+ * For each store with a null store_name, decrypts its token and calls
+ * the Salla API to fetch and save the real store name.
+ */
+export async function syncStoreNames(req, res) {
+  try {
+    const rows = await listStores(req, { limit: 50 });
+    const results = [];
+
+    for (const row of rows) {
+      if (row.store_name) {
+        results.push({ store_id: row.store_id, status: "skipped", name: row.store_name });
+        continue;
+      }
+
+      if (!row.access_token_enc || row.access_token_enc === "__pending_authorize__") {
+        results.push({ store_id: row.store_id, status: "no_token" });
+        continue;
+      }
+
+      try {
+        const token = decrypt(row.access_token_enc);
+        const profile = await fetchStoreProfile(token);
+
+        if (profile?.name) {
+          await updateStoreName(req, row.store_id, profile.name);
+          results.push({ store_id: row.store_id, status: "updated", name: profile.name });
+        } else {
+          results.push({ store_id: row.store_id, status: "no_name_returned" });
+        }
+      } catch (err) {
+        results.push({ store_id: row.store_id, status: "error", error: err?.message });
+      }
+    }
+
+    return res.json({ ok: true, data: results });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || "Sync failed" });
   }
 }

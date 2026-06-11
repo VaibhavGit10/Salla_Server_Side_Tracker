@@ -3,19 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta name="description" content="Salla Server Side Tracking App" />
+    <meta name="theme-color" content="#7B2FF7" />
+    <meta name="description" content="MarketOne — server-side conversion tracking for Salla. Send purchase events to Meta, TikTok, Snapchat & Google and recover signal lost to iOS updates & cookie blockers." />
 
-    <!-- ✅ Runtime API base (AppSail URL) -->
+    <!-- ✅ Runtime API base (AppSail URL) — chosen by hostname.
+         Catalyst note: WebClient (static) and AppSail are independent services
+         on different subdomains. There is no automatic gateway proxy from the
+         project domain to AppSail, so we always call AppSail by absolute URL.
+         Each Catalyst env has its own AppSail subdomain. -->
     <script>
-      window.__API_BASE__ = "https://appsail-50037240850.development.catalystappsail.in";
+      (function () {
+        var host = window.location.hostname || "";
+        var DEV_APPSAIL  = "https://appsail-50037240850.development.catalystappsail.in";
+        var PROD_APPSAIL = "https://appsail-50037240850.catalystappsail.in";
+
+        var isProdHostedUI =
+          /\.catalystserverless\.(in|com)$/i.test(host) &&
+          !/\.development\./i.test(host);
+
+        window.__API_BASE__ = isProdHostedUI ? PROD_APPSAIL : DEV_APPSAIL;
+      })();
     </script>
 
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/marketone-icon.svg" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
 
-    <title>Salla Server Side Tracking</title>
+    <title>MarketOne — Server-Side Tracking</title>
   </head>
 
   <body>

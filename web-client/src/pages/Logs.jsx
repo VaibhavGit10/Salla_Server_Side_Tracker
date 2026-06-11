@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 import Container from "../components/layout/Container";
 import Skeleton from "../components/ui/Skeleton";
 import { fetchEventLogs } from "../api/logs.api";
+import { retryGA4 } from "../api/platforms.api";
 import { getStoreId } from "../utils/store";
 import { useTranslation } from "../utils/i18n";
 
@@ -29,26 +30,42 @@ function parseDateish(input) {
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  const s = String(input || "").trim();
-  if (!s) return null;
+  const s0 = String(input || "").trim();
+  if (!s0) return null;
 
   // "1700000000" / "1700000000000"
-  if (/^\d{10,13}$/.test(s)) {
-    const n = Number(s);
+  if (/^\d{10,13}$/.test(s0)) {
+    const n = Number(s0);
     if (!Number.isFinite(n)) return null;
-    const ms = s.length === 13 ? n : n * 1000;
+    const ms = s0.length === 13 ? n : n * 1000;
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
   // ISO
-  if (s.includes("T")) {
-    const d = new Date(s);
+  if (s0.includes("T")) {
+    const d = new Date(s0);
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  // "YYYY-MM-DD HH:mm:ss"
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
+  // Zoho/Catalyst-ish: "YYYY-MM-DD HH:mm:ss:SSS"
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{1,3}$/.test(s0)) {
+    const [datePart, timePart] = s0.split(" ");
+    const [hh, mm, ss, msRaw] = timePart.split(":");
+    const ms = String(msRaw || "0").padStart(3, "0");
+    const isoLocal = `${datePart}T${hh}:${mm}:${ss}.${ms}`;
+    const d = new Date(isoLocal);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // "YYYY-MM-DD HH:mm:ss" (optionally with fractional seconds)
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s0)) {
+    let s = s0;
+    if (s.includes(".")) {
+      const [a, frac] = s.split(".");
+      const ms = (frac || "").replace(/[^\d]/g, "").slice(0, 3).padEnd(3, "0");
+      s = `${a}.${ms}`;
+    }
     const localTry = new Date(s.replace(" ", "T"));
     if (!Number.isNaN(localTry.getTime())) return localTry;
 
@@ -56,8 +73,7 @@ function parseDateish(input) {
     return Number.isNaN(utcTry.getTime()) ? null : utcTry;
   }
 
-  // JS date strings: "Mon Jan 05 2026 10:02:03 GMT+..."
-  const d = new Date(s);
+  const d = new Date(s0);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -113,13 +129,6 @@ function mapDbStatusToUi(s) {
   return (s || "UNKNOWN").toString().toUpperCase();
 }
 
-/**
- * Handles different API shapes safely:
- * - axios: { data: ... }
- * - { ok: true, data: { items: [] } }
- * - { items: [] }
- * - [] directly
- */
 function unwrapEventLogResponse(resp) {
   const a = resp?.data;
   const b = resp;
@@ -149,7 +158,6 @@ function stableRowId(row) {
   const rid = row?.ROWID || row?.rowid || row?.id;
   if (rid != null) return String(rid);
 
-  // fallback key if DB doesn't provide id
   const t = String(row?.CREATEDTIME || row?.created_time || row?.created_at || row?.last_attempt_at || "");
   const ext = String(row?.external_id || "");
   const st = String(row?.status || "");
@@ -158,32 +166,31 @@ function stableRowId(row) {
   return `${t}::${ext}::${st}::${plat}::${typ}`;
 }
 
-/**
- * ✅ Fix for missing "Time" (showing "-"):
- * Some rows don't have CREATEDTIME/created_at in DB,
- * but the payload contains created_at like: "Mon Jan 05 2026 ...".
- * So we fallback to payload.created_at (and a few common variants).
- */
+function pickFirstParsable(candidates) {
+  for (const v of candidates) {
+    if (parseDateish(v)) return v;
+  }
+  return null;
+}
+
 function getCreatedRaw(row, payloadObj) {
-  return (
-    row?.CREATEDTIME ||
-    row?.created_time ||
-    row?.created_at ||
-    row?.last_attempt_at ||
-    payloadObj?.created_at ||
-    payloadObj?.createdAt ||
-    payloadObj?.data?.created_at ||
-    payloadObj?.data?.createdAt ||
-    payloadObj?.data?.order?.created_at ||
-    payloadObj?.data?.order?.createdAt ||
-    null
-  );
+  return pickFirstParsable([
+    payloadObj?.created_at,
+    payloadObj?.createdAt,
+    row?.last_attempt_at,
+    row?.created_at,
+    row?.created_time,
+    row?.CREATEDTIME,
+    payloadObj?.data?.created_at,
+    payloadObj?.data?.createdAt,
+    payloadObj?.data?.order?.created_at,
+    payloadObj?.data?.order?.createdAt,
+  ]);
 }
 
 function mapRowToLog(row) {
   const payloadObj = safeParse(row?.payload);
 
-  // Some payloads store order under payload.data, some under payload.order
   const data = payloadObj?.data ?? payloadObj ?? {};
   const order = data?.order ?? data;
 
@@ -192,7 +199,12 @@ function mapRowToLog(row) {
   const createdTs = created ? created.getTime() : 0;
 
   const orderId = order?.id || row?.external_id || "-";
-  const value = order?.total?.amount ?? order?.total ?? null;
+
+  const value =
+    order?.amounts?.total?.amount ??
+    order?.total?.amount ??
+    order?.total ??
+    null;
 
   const platform = String(row?.last_platform || row?.platform || "GA4").toUpperCase();
 
@@ -211,7 +223,6 @@ function mapRowToLog(row) {
 
     payload: payloadObj,
 
-    // keep these available for the payload panel (only shown if present)
     last_error: row?.last_error || "",
     last_response: row?.last_response || "",
   };
@@ -229,13 +240,13 @@ function payloadPreview(payload) {
   try {
     const s = JSON.stringify(payload ?? {});
     if (!s) return "-";
-    return s.length > 110 ? s.slice(0, 110) + "…" : s;
+    return s.length > 110 ? s.slice(0, 110) + "\u2026" : s;
   } catch {
     return "-";
   }
 }
 
-/* ----------------------------- Icon (no deps) ---------------------------- */
+/* ----------------------------- Icons ----------------------------- */
 function RefreshIcon({ spin = false }) {
   return (
     <svg className={`ri ${spin ? "spin" : ""}`} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -268,11 +279,12 @@ export default function Logs() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [platformFilter, setPlatformFilter] = useState("ALL");
 
-  // ✅ Single payload UI (no "two payloads"):
-  // We show ONLY one clickable JSON chip; clicking expands a row panel.
   const [openRowId, setOpenRowId] = useState(null);
 
-  /* Keep store id in sync (same tab + other tabs) */
+  // Retry state
+  const [retryingRowId, setRetryingRowId] = useState(null);
+  const [retryMsg, setRetryMsg] = useState({});
+
   useEffect(() => {
     const syncStore = () => setStoreIdState(String(getStoreId() || "").trim());
 
@@ -296,7 +308,6 @@ export default function Logs() {
     };
   }, []);
 
-  /* Fetch once (NO polling / NO loop) */
   const loadLogs = async (sid, { silent } = { silent: false }) => {
     const cleanSid = String(sid || "").trim();
 
@@ -315,7 +326,6 @@ export default function Logs() {
       const rows = unwrapEventLogResponse(resp);
       const mapped = Array.isArray(rows) ? rows.map(mapRowToLog) : [];
 
-      // Dedup + sort newest first + cap
       const dedup = new Map();
       for (const item of mapped) dedup.set(String(item.rowid), item);
       const final = Array.from(dedup.values()).sort((a, b) => (b.createdTs || 0) - (a.createdTs || 0));
@@ -323,7 +333,6 @@ export default function Logs() {
 
       setEvents(final);
 
-      // If the open row disappeared after refresh, close it
       if (openRowId && !final.some((x) => String(x.rowid) === String(openRowId))) setOpenRowId(null);
     } catch {
       setEvents([]);
@@ -371,6 +380,31 @@ export default function Logs() {
     });
   }, [events, q, statusFilter, platformFilter]);
 
+  // Status summary counts
+  const statusCounts = useMemo(() => {
+    const counts = { SUCCESS: 0, FAILED: 0, SKIPPED: 0, PENDING: 0 };
+    for (const e of events) {
+      const s = String(e.status || "").toUpperCase();
+      if (s in counts) counts[s] += 1;
+    }
+    return counts;
+  }, [events]);
+
+  async function handleRetry(rowid) {
+    if (retryingRowId) return;
+    setRetryingRowId(rowid);
+    setRetryMsg((prev) => ({ ...prev, [rowid]: "" }));
+
+    try {
+      await retryGA4(rowid);
+      setRetryMsg((prev) => ({ ...prev, [rowid]: t("retrySuccess") }));
+    } catch (err) {
+      setRetryMsg((prev) => ({ ...prev, [rowid]: `${t("retryFailed")}: ${err?.message || "unknown"}` }));
+    } finally {
+      setRetryingRowId(null);
+    }
+  }
+
   if (loading) {
     return (
       <Container title={t("logsTitle")} subtitle={t("logsLoadingSubtitle")}>
@@ -396,7 +430,12 @@ export default function Logs() {
       <Container title={t("logsTitle")} subtitle={t("logsEmptySubtitle")}>
         <div className="logCard">
           <div className="emptyState">
-            <div className="emptyIcon">📭</div>
+            <svg className="emptyIllustration" width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+              <rect x="12" y="8" width="40" height="48" rx="6" fill="rgba(15,23,42,0.04)" stroke="rgba(15,23,42,0.15)" strokeWidth="2" />
+              <path d="M22 24h20M22 32h14M22 40h18" stroke="rgba(15,23,42,0.12)" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="48" cy="48" r="12" fill="rgba(15,23,42,0.06)" stroke="rgba(15,23,42,0.15)" strokeWidth="2" />
+              <path d="M44 48h8M48 44v8" stroke="rgba(15,23,42,0.2)" strokeWidth="2" strokeLinecap="round" />
+            </svg>
             <div className="emptyTitle">{t("logsEmptyTitle")}</div>
             <div className="emptySub">{t("logsEmptyBody")}</div>
 
@@ -420,9 +459,20 @@ export default function Logs() {
   return (
     <Container title={t("logsTitle")} subtitle={t("logsMainSubtitle")}>
       <div className="logCard">
+        {/* Status Summary Bar */}
+        <div className="statusSummary">
+          <StatusChip label={t("statusSuccess")} count={statusCounts.SUCCESS} tone="green" />
+          <StatusChip label={t("statusFailed")} count={statusCounts.FAILED} tone="red" />
+          <StatusChip label={t("statusSkipped")} count={statusCounts.SKIPPED} tone="yellow" />
+          <StatusChip label={t("statusPending")} count={statusCounts.PENDING} tone="cyan" />
+        </div>
+
         <div className="logToolbar">
           <div className="logSearch">
-            <span className="searchIcon">⌕</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}>
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
             <input
               className="searchInput"
               placeholder={t("logsSearchPlaceholder")}
@@ -447,7 +497,6 @@ export default function Logs() {
             <option value="PENDING">PENDING</option>
           </select>
 
-          {/* Refresh button matches select */}
           <button
             type="button"
             className="selectBtn"
@@ -485,11 +534,12 @@ export default function Logs() {
                 filtered.map((e) => {
                   const isOpen = String(openRowId || "") === String(e.rowid || "");
                   const preview = payloadPreview(e.payload);
+                  const isFailed = e.status === "FAILED";
+                  const rowRetryMsg = retryMsg[e.rowid] || "";
 
                   return (
-                    <>
-                      <tr key={e.rowid}>
-                        {/* ✅ Time visible again (with absolute tooltip) */}
+                    <Fragment key={String(e.rowid)}>
+                      <tr>
                         <td className="tdTime muted" title={e.timeAbs || ""}>
                           {e.time}
                         </td>
@@ -512,12 +562,15 @@ export default function Logs() {
                           <StatusBadge status={e.status} />
                         </td>
 
-                        {/* ✅ SINGLE payload UI: click the JSON itself (no second "Payload" pill) */}
                         <td className="tdPayload">
                           <button
                             type="button"
                             className={`payloadBtn ${isOpen ? "open" : ""}`}
-                            onClick={() => setOpenRowId((prev) => (String(prev || "") === String(e.rowid) ? null : e.rowid))}
+                            onClick={() =>
+                              setOpenRowId((prev) =>
+                                String(prev || "") === String(e.rowid) ? null : e.rowid
+                              )
+                            }
                             title={t("logsViewPayload")}
                           >
                             <span className="payloadBtnText">{preview}</span>
@@ -526,9 +579,8 @@ export default function Logs() {
                         </td>
                       </tr>
 
-                      {/* Expanded payload row (merged view + internal scroll) */}
                       {isOpen && (
-                        <tr className="payloadRow" key={`${e.rowid}__payload`}>
+                        <tr className="payloadRow">
                           <td colSpan={7} className="payloadCell">
                             <div className="payloadPanel">
                               <div className="payloadPanelHead">
@@ -546,11 +598,30 @@ export default function Logs() {
                                   </pre>
                                 </div>
                               )}
+
+                              {isFailed && (
+                                <div className="retryRow">
+                                  <button
+                                    type="button"
+                                    className="retryBtn"
+                                    onClick={() => handleRetry(e.rowid)}
+                                    disabled={retryingRowId === e.rowid}
+                                  >
+                                    <RefreshIcon spin={retryingRowId === e.rowid} />
+                                    <span>{retryingRowId === e.rowid ? t("retrying") : t("retry")}</span>
+                                  </button>
+                                  {rowRetryMsg && (
+                                    <span className={`retryMsg ${rowRetryMsg.includes(t("retrySuccess")) ? "ok" : "err"}`}>
+                                      {rowRetryMsg}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })
               )}
@@ -561,6 +632,12 @@ export default function Logs() {
         <div className="logFooter">
           <div className="muted">
             {t("logsShowing")} <b>{filtered.length}</b> {t("logsOf")} <b>{events.length}</b> {t("logsEvents")}
+            {(statusFilter !== "ALL" || platformFilter !== "ALL" || q.trim()) && (
+              <span className="filterContext">
+                {" "}
+                ({platformFilter !== "ALL" ? platformFilter : ""}{statusFilter !== "ALL" ? ` ${statusFilter}` : ""}{q.trim() ? ` "${q.trim()}"` : ""})
+              </span>
+            )}
           </div>
           <div className="muted">Store: {storeId || "N/A"}</div>
         </div>
@@ -581,38 +658,6 @@ function StatusBadge({ status }) {
   return (
     <span className={`st ${ok ? "ok" : skipped ? "skip" : pending ? "pend" : "bad"}`}>
       {s}
-      <style>{`
-        .st{
-          display:inline-flex;
-          align-items:center;
-          padding:6px 10px;
-          border-radius:999px;
-          font-size:12px;
-          font-weight:1100;
-          border: 1px solid rgba(15,23,42,0.10);
-          white-space: nowrap;
-        }
-        .st.ok{
-          background: rgba(25,135,84,0.12);
-          border-color: rgba(25,135,84,0.20);
-          color:#198754;
-        }
-        .st.skip{
-          background: rgba(255,193,7,0.14);
-          border-color: rgba(255,193,7,0.22);
-          color:#B45309;
-        }
-        .st.pend{
-          background: rgba(13,202,240,0.14);
-          border-color: rgba(13,202,240,0.22);
-          color:#055a66;
-        }
-        .st.bad{
-          background: rgba(171,46,60,0.12);
-          border-color: rgba(171,46,60,0.20);
-          color:#AB2E3C;
-        }
-      `}</style>
     </span>
   );
 }
@@ -628,24 +673,24 @@ function PlatformBadge({ platform }) {
   return (
     <span className={`pb ${cls}`}>
       {p || "UNKNOWN"}
-      <style>{`
-        .pb{
-          display:inline-flex;
-          align-items:center;
-          padding:6px 10px;
-          border-radius:999px;
-          font-size:12px;
-          font-weight:1100;
-          border: 1px solid rgba(15,23,42,0.10);
-          white-space: nowrap;
-        }
-        .pb.ga4{ background: rgba(66,133,244,0.12); border-color: rgba(66,133,244,0.18); color:#4285F4; }
-        .pb.meta{ background: rgba(24,119,242,0.12); border-color: rgba(24,119,242,0.20); color:#1877F2; }
-        .pb.tiktok{ background: rgba(37,244,238,0.14); border-color: rgba(37,244,238,0.22); color:#0E7490; }
-        .pb.snap{ background: rgba(255,252,0,0.22); border-color: rgba(250,204,21,0.40); color:#92400E; }
-        .pb.default{ background: rgba(13,202,240,0.10); border-color: rgba(13,202,240,0.18); color:#0DCAF0; }
-      `}</style>
     </span>
+  );
+}
+
+function StatusChip({ label, count, tone }) {
+  const toneMap = {
+    green: { bg: "rgba(25,135,84,0.12)", border: "rgba(25,135,84,0.20)", color: "#198754" },
+    red: { bg: "rgba(171,46,60,0.12)", border: "rgba(171,46,60,0.20)", color: "#AB2E3C" },
+    yellow: { bg: "rgba(255,193,7,0.14)", border: "rgba(255,193,7,0.22)", color: "#B45309" },
+    cyan: { bg: "rgba(13,202,240,0.14)", border: "rgba(13,202,240,0.22)", color: "#055a66" },
+  };
+  const tc = toneMap[tone] || toneMap.cyan;
+
+  return (
+    <div className="statusChip" style={{ background: tc.bg, borderColor: tc.border, color: tc.color }}>
+      <span className="statusChipLabel">{label}</span>
+      <span className="statusChipCount">{count}</span>
+    </div>
   );
 }
 
@@ -658,6 +703,80 @@ const logsCss = `
   overflow: hidden;
   max-width: 100%;
 }
+
+/* Status Summary Bar */
+.statusSummary{
+  display:flex;
+  gap:10px;
+  padding:14px;
+  border-bottom:1px solid rgba(15,23,42,0.08);
+  flex-wrap:wrap;
+}
+.statusChip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 14px;
+  border-radius:999px;
+  border:1px solid;
+  font-size:13px;
+  font-weight:700;
+}
+.statusChipLabel{
+  font-weight:600;
+  opacity:0.8;
+}
+.statusChipCount{
+  font-weight:800;
+}
+
+/* Badge styles (consolidated) */
+.st{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  border: 1px solid rgba(15,23,42,0.10);
+  white-space: nowrap;
+}
+.st.ok{
+  background: rgba(25,135,84,0.12);
+  border-color: rgba(25,135,84,0.20);
+  color:#198754;
+}
+.st.skip{
+  background: rgba(255,193,7,0.14);
+  border-color: rgba(255,193,7,0.22);
+  color:#B45309;
+}
+.st.pend{
+  background: rgba(13,202,240,0.14);
+  border-color: rgba(13,202,240,0.22);
+  color:#055a66;
+}
+.st.bad{
+  background: rgba(171,46,60,0.12);
+  border-color: rgba(171,46,60,0.20);
+  color:#AB2E3C;
+}
+
+.pb{
+  display:inline-flex;
+  align-items:center;
+  padding:6px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  border: 1px solid rgba(15,23,42,0.10);
+  white-space: nowrap;
+}
+.pb.ga4{ background: rgba(66,133,244,0.12); border-color: rgba(66,133,244,0.18); color:#4285F4; }
+.pb.meta{ background: rgba(24,119,242,0.12); border-color: rgba(24,119,242,0.20); color:#1877F2; }
+.pb.tiktok{ background: rgba(37,244,238,0.14); border-color: rgba(37,244,238,0.22); color:#0E7490; }
+.pb.snap{ background: rgba(255,252,0,0.22); border-color: rgba(250,204,21,0.40); color:#92400E; }
+.pb.default{ background: rgba(13,202,240,0.10); border-color: rgba(13,202,240,0.18); color:#0DCAF0; }
 
 .logToolbar{
   display:flex;
@@ -683,44 +802,36 @@ const logsCss = `
   min-width: 0;
 }
 
-.searchIcon{
-  opacity: 0.65;
-  font-weight: 1000;
-  user-select:none;
-}
-
 .searchInput{
   width: 100%;
   border: 0;
   outline: none;
-  font-weight: 900;
+  font-weight: 700;
   font-size: 13px;
   background: transparent;
   color: rgba(15,23,42,0.82);
 }
 
-/* Select */
 .select{
   height: 42px;
   padding: 0 12px;
   border-radius: 14px;
   border: 1px solid rgba(15,23,42,0.10);
   background: rgba(255,255,255,0.92);
-  font-weight: 950;
+  font-weight: 700;
   font-size: 13px;
   color: rgba(15,23,42,0.78);
   outline: none;
   max-width: 100%;
 }
 
-/* Refresh button styled EXACTLY like select */
 .selectBtn{
   height: 42px;
   padding: 0 12px;
   border-radius: 14px;
   border: 1px solid rgba(15,23,42,0.10);
   background: rgba(255,255,255,0.92);
-  font-weight: 950;
+  font-weight: 700;
   font-size: 13px;
   color: rgba(15,23,42,0.78);
   outline: none;
@@ -733,7 +844,6 @@ const logsCss = `
 }
 .selectBtn:disabled{ opacity: 0.6; cursor: not-allowed; }
 
-/* Refresh icon */
 .ri{ opacity: 0.85; }
 .spin{ animation: spin 0.85s linear infinite; }
 @keyframes spin{ from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
@@ -748,14 +858,14 @@ const logsCss = `
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 980px;
+  min-width: 700px;
   table-layout: fixed;
 }
 
 .logTable thead th{
   text-align: left;
   font-size: 12px;
-  font-weight: 1100;
+  font-weight: 800;
   color: rgba(15,23,42,0.72);
   padding: 12px 14px;
   position: sticky;
@@ -770,20 +880,19 @@ const logsCss = `
   border-bottom: 1px solid rgba(15,23,42,0.06);
   vertical-align: top;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   color: rgba(15,23,42,0.82);
 }
 
 .logTable tbody tr:hover td{ background: rgba(15,23,42,0.02); }
 
-/* Neat column alignment */
-.colTime{ width: 110px; }
-.colPlatform{ width: 120px; }
-.colType{ width: 180px; }
-.colOrder{ width: 160px; }
-.colValue{ width: 130px; }
-.colStatus{ width: 130px; }
-.colPayload{ width: 430px; }
+.colTime{ width: 100px; }
+.colPlatform{ width: 110px; }
+.colType{ width: 140px; }
+.colOrder{ width: 130px; }
+.colValue{ width: 110px; }
+.colStatus{ width: 110px; }
+.colPayload{ width: auto; min-width: 200px; }
 
 .tdTime{ white-space: nowrap; }
 .tdPlatform, .tdStatus{ white-space: nowrap; }
@@ -792,7 +901,7 @@ const logsCss = `
 .tdValue{ white-space: nowrap; }
 .tdPayload{ padding-right: 18px; }
 
-.muted{ color: rgba(15,23,42,0.55); font-weight: 900; }
+.muted{ color: rgba(15,23,42,0.55); font-weight: 700; }
 .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 
 .typePill{
@@ -803,10 +912,9 @@ const logsCss = `
   border: 1px solid rgba(15,23,42,0.10);
   background: rgba(15,23,42,0.04);
   font-size: 12px;
-  font-weight: 1100;
+  font-weight: 800;
 }
 
-/* ✅ Single payload chip/button (click JSON => expand) */
 .payloadBtn{
   width: 100%;
   display:flex;
@@ -815,14 +923,12 @@ const logsCss = `
   gap:10px;
   cursor:pointer;
   user-select:none;
-
   padding: 8px 10px;
   border-radius: 14px;
   border: 1px solid rgba(15,23,42,0.10);
   background: rgba(255,255,255,0.85);
-
   color: rgba(15,23,42,0.78);
-  font-weight: 950;
+  font-weight: 700;
   font-size: 12px;
   text-align: left;
 }
@@ -832,7 +938,7 @@ const logsCss = `
   flex: 1;
   min-width: 0;
   color: rgba(15,23,42,0.58);
-  font-weight: 900;
+  font-weight: 700;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -842,7 +948,6 @@ const logsCss = `
 .chev{ opacity: 0.65; margin-top: 1px; transition: transform 160ms ease; }
 .chev.open{ transform: rotate(180deg); }
 
-/* Expanded payload row */
 .payloadRow td{ background: rgba(15,23,42,0.01); }
 .payloadCell{ padding: 12px 14px 16px; }
 
@@ -851,8 +956,8 @@ const logsCss = `
   border: 1px solid rgba(15,23,42,0.10);
   background: rgba(15,23,42,0.03);
   padding: 12px;
-  max-height: 340px;          /* ✅ internal scroll area */
-  overflow: auto;             /* ✅ scroll inside panel */
+  max-height: 340px;
+  overflow: auto;
 }
 
 .payloadPanelHead{
@@ -864,12 +969,12 @@ const logsCss = `
 }
 .payloadPanelTitle{
   font-size: 12px;
-  font-weight: 1100;
+  font-weight: 800;
   color: rgba(15,23,42,0.78);
 }
 .payloadPanelSub{
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .payloadPre{
@@ -880,19 +985,55 @@ const logsCss = `
   background: rgba(255,255,255,0.75);
   font-size: 12px;
   line-height: 1.45;
-  font-weight: 900;
+  font-weight: 700;
   overflow:auto;
-  max-height: 220px;          /* ✅ scroll inside JSON block too */
+  max-height: 220px;
 }
 .payloadPre.small{ max-height: 120px; }
 
 .payloadMeta{ margin-top: 10px; }
 .payloadMetaTitle{
   font-size: 12px;
-  font-weight: 1100;
+  font-weight: 800;
   color: rgba(15,23,42,0.70);
   margin-bottom: 8px;
 }
+
+/* Retry */
+.retryRow{
+  margin-top:10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.retryBtn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:8px 14px;
+  border-radius:12px;
+  border:1px solid rgba(171,46,60,0.20);
+  background:rgba(171,46,60,0.08);
+  color:#AB2E3C;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  transition: background 0.15s ease;
+}
+.retryBtn:hover{
+  background:rgba(171,46,60,0.14);
+}
+.retryBtn:disabled{
+  opacity:0.6;
+  cursor:not-allowed;
+}
+.retryMsg{
+  font-size:12px;
+  font-weight:700;
+}
+.retryMsg.ok{ color:#198754; }
+.retryMsg.err{ color:#AB2E3C; }
 
 .logFooter{
   display:flex;
@@ -903,11 +1044,17 @@ const logsCss = `
   flex-wrap: wrap;
 }
 
+.filterContext{
+  font-weight:600;
+  font-style:italic;
+  opacity:0.7;
+}
+
 .emptyInline{
   padding: 18px;
   text-align: center;
   color: rgba(15,23,42,0.60);
-  font-weight: 950;
+  font-weight: 700;
 }
 
 .emptyState{
@@ -920,16 +1067,16 @@ const logsCss = `
   gap: 10px;
 }
 
-.emptyIcon{ font-size: 32px; }
+.emptyIllustration{ margin-bottom: 6px; }
 .emptyTitle{
   font-size: 16px;
-  font-weight: 1150;
+  font-weight: 800;
   color: rgba(15,23,42,0.82);
 }
 .emptySub{
   max-width: 560px;
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   color: rgba(15,23,42,0.55);
 }
 

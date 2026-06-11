@@ -1,0 +1,38 @@
+# ── OS / editor junk ──
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# ── Logs ──
+*.log
+logs/
+catalyst-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Env / secrets ──
+.env
+.env.*
+!.env.example
+
+# ── Node ──
+node_modules/
+**/node_modules/
+
+# ── Build output ──
+web-client/build/
+dist/
+*.tsbuildinfo
+
+# ── Zoho Catalyst ──
+.catalyst/
+
+# ── Python cache (brand icon generator) ──
+__pycache__/
+*.pyc

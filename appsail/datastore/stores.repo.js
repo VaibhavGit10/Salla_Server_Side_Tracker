@@ -10,7 +10,6 @@ function escZcql(str) {
 }
 
 /** Extract store_id consistently from Salla webhook payload */
-/** Extract store_id consistently from Salla webhook payload */
 function extractStoreIdFromBody(body) {
   const id =
     body?.merchant ??
@@ -21,6 +20,16 @@ function extractStoreIdFromBody(body) {
     "";
 
   return String(id).trim();
+}
+
+/** Extract store display name from Salla webhook payload */
+function extractStoreNameFromBody(body) {
+  const name =
+    body?.data?.store?.name ??
+    body?.data?.merchant?.name ??
+    body?.store?.name ??
+    null;
+  return name ? String(name).trim().slice(0, 200) : null;
 }
 
 
@@ -66,6 +75,9 @@ export async function upsertStore(req, data) {
     updated_at: toCatalystDateTime(new Date())
   };
 
+  // Only include store_name if explicitly provided (avoid overwriting with null)
+  if (data.store_name) payload.store_name = data.store_name;
+
   if (existing?.ROWID) {
     await table.updateRow({ ROWID: existing.ROWID, ...payload });
     return { ...existing, ...payload };
@@ -96,6 +108,8 @@ export async function upsertStoreAuth(req, body) {
   // ✅ FIX: unix seconds -> "YYYY-MM-DD HH:mm:ss"
   const token_expires_at = d.expires ? unixSecondsToCatalystDateTime(d.expires) : null;
 
+  const store_name = extractStoreNameFromBody(body);
+
   return await upsertStore(req, {
     store_id,
     status: "active",
@@ -103,6 +117,7 @@ export async function upsertStoreAuth(req, body) {
     refresh_token_enc: d.refresh_token ? encrypt(d.refresh_token) : null,
     scope,
     token_expires_at,
+    store_name,
     installed_at: toCatalystDateTime(new Date())
   });
 }
@@ -117,37 +132,43 @@ export async function upsertStoreAuth(req, body) {
  * To avoid 403, we mark store as ACTIVE on install/update events.
  */
 export async function markStoreInstalled(req, bodyOrStoreId) {
-  const store_id =
-    typeof bodyOrStoreId === "string"
-      ? bodyOrStoreId
-      : extractStoreIdFromBody(bodyOrStoreId);
+  const isBody = typeof bodyOrStoreId !== "string";
+  const store_id = isBody
+    ? extractStoreIdFromBody(bodyOrStoreId)
+    : bodyOrStoreId;
 
   if (!store_id) throw new Error("Missing store_id");
+
+  const store_name = isBody ? extractStoreNameFromBody(bodyOrStoreId) : null;
 
   const existing = await getStore(req, store_id);
   const table = getDatastore(req).table(TABLE);
 
   if (existing?.ROWID) {
-    await table.updateRow({
+    const patch = {
       ROWID: existing.ROWID,
-      status: "active", // ✅ important
+      status: "active",
       updated_at: toCatalystDateTime(new Date())
-    });
+    };
+    if (store_name) patch.store_name = store_name;
+    await table.updateRow(patch);
     return true;
   }
 
   // If installed arrives before authorize, create minimal row.
   // access_token_enc is mandatory → keep placeholder.
-  await table.insertRow({
+  const newRow = {
     store_id,
-    status: "active", // ✅ important
+    status: "active",
     access_token_enc: "__pending_authorize__",
     refresh_token_enc: null,
     scope: null,
     token_expires_at: null,
     updated_at: toCatalystDateTime(new Date()),
     installed_at: toCatalystDateTime(new Date())
-  });
+  };
+  if (store_name) newRow.store_name = store_name;
+  await table.insertRow(newRow);
 
   return true;
 }
@@ -179,11 +200,23 @@ export async function markStoreUninstalled(req, bodyOrStoreId) {
 export async function listStores(req, { limit = 50 } = {}) {
   const zcql = getZCQL(req);
   const q = `
-    SELECT store_id, status, updated_at, installed_at
+    SELECT ROWID, store_id, store_name, status, updated_at, installed_at, access_token_enc
     FROM ${TABLE}
     ORDER BY MODIFIEDTIME DESC
     LIMIT ${Number(limit)}
   `;
   const result = await zcql.executeZCQLQuery(q);
   return (result || []).map(r => r[TABLE]).filter(Boolean);
+}
+
+export async function updateStoreName(req, store_id, name) {
+  if (!store_id || !name) return;
+  const existing = await getStore(req, store_id);
+  if (!existing?.ROWID) return;
+  const table = getDatastore(req).table(TABLE);
+  await table.updateRow({
+    ROWID: existing.ROWID,
+    store_name: String(name).trim().slice(0, 200),
+    updated_at: toCatalystDateTime(new Date())
+  });
 }

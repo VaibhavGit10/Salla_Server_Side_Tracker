@@ -89,6 +89,35 @@ export async function exchangeCodeForToken(code) {
  * Refresh access token using refresh_token (future-proofing).
  * Token endpoint is the same. :contentReference[oaicite:4]{index=4}
  */
+/**
+ * Fetch store profile from Salla API using a valid access token.
+ * Returns { name, domain, email } or null if the call fails.
+ */
+export async function fetchStoreProfile(accessToken) {
+  if (!accessToken) return null;
+
+  try {
+    const response = await axios.get("https://api.salla.dev/admin/v2/settings/store", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json"
+      },
+      timeout: 10000
+    });
+
+    const d = response.data?.data || {};
+    return {
+      name: d.name || d.store_name || d.branch_name || null,
+      domain: d.domain || d.store_domain || null,
+      email: d.email || null
+    };
+  } catch (err) {
+    const status = err?.response?.status;
+    console.error("fetchStoreProfile failed", { status, store: "unknown" });
+    return null;
+  }
+}
+
 export async function refreshAccessToken(refreshToken) {
   if (!refreshToken) throw new Error("Missing refresh token");
 

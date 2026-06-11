@@ -12,7 +12,10 @@ export async function oauthCallback(req, res) {
     const code = req.query?.code;
     const store_id = String(req.query?.store_id || req.query?.merchant || "");
 
-    const dashboardUrl = process.env.APP_BASE_URL || "/";
+    // DASHBOARD_URL = where to redirect merchants after OAuth (the React UI).
+    // APP_BASE_URL  = this AppSail's own URL (used to derive the OAuth callback).
+    // Fall back to APP_BASE_URL for backward compatibility.
+    const dashboardUrl = process.env.DASHBOARD_URL || process.env.APP_BASE_URL || "/";
 
     // If no code, don’t fail startup or flow — just redirect.
     if (!code) {
@@ -42,7 +45,10 @@ export async function oauthCallback(req, res) {
     return res.redirect(`${dashboardUrl}?oauth=success`);
   } catch (err) {
     console.error("OAuth error:", err?.response?.data || err?.message || err);
-    const dashboardUrl = process.env.APP_BASE_URL || "/";
+    // DASHBOARD_URL = where to redirect merchants after OAuth (the React UI).
+    // APP_BASE_URL  = this AppSail's own URL (used to derive the OAuth callback).
+    // Fall back to APP_BASE_URL for backward compatibility.
+    const dashboardUrl = process.env.DASHBOARD_URL || process.env.APP_BASE_URL || "/";
     return res.redirect(`${dashboardUrl}?oauth=failed`);
   }
 }

@@ -18,26 +18,13 @@ async function postToGa4(url, payload) {
     validateStatus: () => true // handle non-2xx manually
   });
 
-  if (res.status < 200 || res.status >= 300) {
-    const err = new Error(`GA4 HTTP ${res.status}`);
-    err.http_status = res.status;
-    err.response_body = res.data;
-    throw err;
-  }
-
-  return { ok: true, status: res.status, data: res.data };
+  const ok = res.status >= 200 && res.status < 300;
+  return { ok, status: res.status, data: res.data };
 }
 
 export async function sendGa4Event({ measurement_id, api_secret, payload }) {
   const url = buildUrl({ measurement_id, api_secret, debug: false });
-  try {
-    return await postToGa4(url, payload);
-  } catch (err) {
-    const e = new Error(err?.message || "GA4 request failed");
-    e.http_status = err?.http_status;
-    e.response_body = err?.response_body;
-    throw e;
-  }
+  return postToGa4(url, payload);
 }
 
 /**
@@ -45,12 +32,5 @@ export async function sendGa4Event({ measurement_id, api_secret, payload }) {
  */
 export async function sendGa4DebugEvent({ measurement_id, api_secret, payload }) {
   const url = buildUrl({ measurement_id, api_secret, debug: true });
-  try {
-    return await postToGa4(url, payload);
-  } catch (err) {
-    const e = new Error(err?.message || "GA4 debug request failed");
-    e.http_status = err?.http_status;
-    e.response_body = err?.response_body;
-    throw e;
-  }
+  return postToGa4(url, payload);
 }

@@ -1,44 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { Layers } from "lucide-react";
 import Skeleton from "../components/ui/Skeleton";
 import { getStoreId } from "../utils/store";
-import { fetchDashboardSummary } from "../api/platforms.api";
+import { fetchDashboardSummary, fetchStores } from "../api/platforms.api";
 import { fetchEventLogs } from "../api/logs.api";
 import { useTranslation } from "../utils/i18n";
 import metaIcon from "../assets/metaIcon.webp";
 
 const PLATFORMS = [
-  {
-    key: "GA4",
-    name: "GA4",
-    desc: "Analytics events",
-    pill: "Tracking",
-    color: "#0D6EFD",
-    accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)",
-  },
-  {
-    key: "META",
-    name: "Meta",
-    desc: "CAPI events",
-    pill: "Ads",
-    color: "#7C3AED",
-    accent: "linear-gradient(90deg,#7C3AED,#EC4899)",
-  },
-  {
-    key: "TIKTOK",
-    name: "TikTok",
-    desc: "Pixel events",
-    pill: "Ads",
-    color: "#111827",
-    accent: "linear-gradient(90deg,#111827,#14B8A6)",
-  },
-  {
-    key: "SNAPCHAT",
-    name: "Snapchat",
-    desc: "Conversions API",
-    pill: "Ads",
-    color: "#F59E0B",
-    accent: "linear-gradient(90deg,#F59E0B,#EF4444)",
-  },
+  { key: "GA4", name: "GA4", desc: "Analytics events", pill: "Tracking", color: "#0D6EFD", accent: "linear-gradient(90deg,#4285F4,#34A853,#FBBC05,#EA4335)" },
+  { key: "META", name: "Meta", desc: "CAPI events", pill: "Ads", color: "#7C3AED", accent: "linear-gradient(90deg,#7C3AED,#EC4899)" },
+  { key: "TIKTOK", name: "TikTok", desc: "Pixel events", pill: "Ads", color: "#111827", accent: "linear-gradient(90deg,#111827,#14B8A6)" },
+  { key: "SNAPCHAT", name: "Snapchat", desc: "Conversions API", pill: "Ads", color: "#F59E0B", accent: "linear-gradient(90deg,#F59E0B,#EF4444)" },
 ];
 
 const EMPTY_7 = [0, 0, 0, 0, 0, 0, 0];
@@ -90,6 +64,7 @@ function unwrapStatsResponse(resp) {
       return {
         total: Number(d.total || 0),
         by_status: d.by_status || d.byStatus || {},
+        dispatch_by_platform: d.dispatch_by_platform || {}
       };
     }
 
@@ -97,6 +72,7 @@ function unwrapStatsResponse(resp) {
       return {
         total: Number(c.total || 0),
         by_status: c.by_status || c.byStatus || {},
+        dispatch_by_platform: c.dispatch_by_platform || {}
       };
     }
   }
@@ -183,58 +159,25 @@ function PlatformIcon({ platform, size = 18 }) {
   if (key === "GA4") {
     return (
       <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-        <path
-          fill="#EA4335"
-          d="M24 20.1v7.7h10.7c-.4 2-1.6 3.7-3.3 4.8v5h5.4c3.2-2.9 5-7.2 5-12.5 0-1.2-.1-2.1-.3-3H24Z"
-        />
-        <path
-          fill="#34A853"
-          d="M24 42c4.6 0 8.5-1.5 11.3-4.1l-5.4-5c-1.5 1-3.4 1.7-5.9 1.7-4.5 0-8.2-3-9.6-7.1H8.9v5.2C11.7 38.2 17.4 42 24 42Z"
-        />
-        <path
-          fill="#4285F4"
-          d="M14.4 27.5c-.4-1.1-.6-2.2-.6-3.5s.2-2.4.6-3.5V15.3H8.9C7.7 17.7 7 20.7 7 24s.7 6.3 1.9 8.7l5.5-5.2Z"
-        />
-        <path
-          fill="#FBBC05"
-          d="M24 13.5c2.5 0 4.7.9 6.5 2.6l4.8-4.8C32.4 8.5 28.6 7 24 7 17.4 7 11.7 10.8 8.9 15.3l5.5 5.2c1.4-4.1 5.1-7 9.6-7Z"
-        />
+        <path fill="#EA4335" d="M24 20.1v7.7h10.7c-.4 2-1.6 3.7-3.3 4.8v5h5.4c3.2-2.9 5-7.2 5-12.5 0-1.2-.1-2.1-.3-3H24Z" />
+        <path fill="#34A853" d="M24 42c4.6 0 8.5-1.5 11.3-4.1l-5.4-5c-1.5 1-3.4 1.7-5.9 1.7-4.5 0-8.2-3-9.6-7.1H8.9v5.2C11.7 38.2 17.4 42 24 42Z" />
+        <path fill="#4285F4" d="M14.4 27.5c-.4-1.1-.6-2.2-.6-3.5s.2-2.4.6-3.5V15.3H8.9C7.7 17.7 7 20.7 7 24s.7 6.3 1.9 8.7l5.5-5.2Z" />
+        <path fill="#FBBC05" d="M24 13.5c2.5 0 4.7.9 6.5 2.6l4.8-4.8C32.4 8.5 28.6 7 24 7 17.4 7 11.7 10.8 8.9 15.3l5.5 5.2c1.4-4.1 5.1-7 9.6-7Z" />
       </svg>
     );
   }
 
   if (key === "META") {
-    return (
-      <img
-        src={metaIcon}
-        alt="Meta"
-        className="platImg"
-        style={{ width: size, height: size }}
-        loading="eager"
-      />
-    );
+    return <img src={metaIcon} alt="Meta" className="platImg" style={{ width: size, height: size }} loading="eager" />;
   }
 
   if (key === "TIKTOK") {
     return (
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" style={{ display: "block" }}>
         <circle cx="32" cy="32" r="30" fill="#0B0F19" />
-        <path
-          d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
-          fill="#25F4EE"
-          opacity="0.95"
-          transform="translate(-1.2,1.2)"
-        />
-        <path
-          d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
-          fill="#FE2C55"
-          opacity="0.9"
-          transform="translate(1.1,-1.0)"
-        />
-        <path
-          d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6"
-          fill="#FFFFFF"
-        />
+        <path d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6" fill="#25F4EE" opacity="0.95" transform="translate(-1.2,1.2)" />
+        <path d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6" fill="#FE2C55" opacity="0.9" transform="translate(1.1,-1.0)" />
+        <path d="M37.8 16v24.1c0 6.4-5.2 11.6-11.6 11.6-5.4 0-9.8-4.4-9.8-9.8s4.4-9.8 9.8-9.8c1 0 2 .2 2.9.5v6.3c-.7-.4-1.6-.6-2.5-.6-2.1 0-3.8 1.7-3.8 3.8s1.7 3.8 3.8 3.8c2.3 0 4.1-1.8 4.1-4.1V16h7.1c.6 3.6 2.8 6.1 6.3 6.8v6.3c-2.5-.2-4.8-1.1-6.8-2.6v13.6" fill="#FFFFFF" />
       </svg>
     );
   }
@@ -242,29 +185,7 @@ function PlatformIcon({ platform, size = 18 }) {
   if (key === "SNAPCHAT") {
     return (
       <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-        <path
-          d="M32 14
-             c-7.2 0-12.3 5.6-12.3 13.5
-             0 2.4.6 4.6 1 6.1
-             .4 1.4-.3 2.2-1.3 2.8
-             -1.2.8-3.4 1.7-5.3 2.1
-             -1.2.3-1.6 1.7-.9 2.6
-             1.2 1.6 3.6 2.7 6.2 3.1
-             .7 4.5 4.1 8.6 7.8 10.4
-             1.6.8 3.2 1 4.8 1
-             1.6 0 3.2-.2 4.8-1
-             3.7-1.8 7.1-5.9 7.8-10.4
-             2.6-.4 5-1.5 6.2-3.1
-             .7-.9.3-2.3-.9-2.6
-             -1.9-.4-4.1-1.3-5.3-2.1
-             -1-.6-1.7-1.4-1.3-2.8
-             .4-1.5 1-3.7 1-6.1
-             C44.3 19.6 39.2 14 32 14Z"
-          fill="#FFFFFF"
-          stroke="#111827"
-          strokeWidth="2.6"
-          strokeLinejoin="round"
-        />
+        <path d="M32 14 c-7.2 0-12.3 5.6-12.3 13.5 0 2.4.6 4.6 1 6.1 .4 1.4-.3 2.2-1.3 2.8 -1.2.8-3.4 1.7-5.3 2.1 -1.2.3-1.6 1.7-.9 2.6 1.2 1.6 3.6 2.7 6.2 3.1 .7 4.5 4.1 8.6 7.8 10.4 1.6.8 3.2 1 4.8 1 1.6 0 3.2-.2 4.8-1 3.7-1.8 7.1-5.9 7.8-10.4 2.6-.4 5-1.5 6.2-3.1 .7-.9.3-2.3-.9-2.6 -1.9-.4-4.1-1.3-5.3-2.1 -1-.6-1.7-1.4-1.3-2.8 .4-1.5 1-3.7 1-6.1 C44.3 19.6 39.2 14 32 14Z" fill="#FFFFFF" stroke="#111827" strokeWidth="2.6" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -272,11 +193,12 @@ function PlatformIcon({ platform, size = 18 }) {
   return <span />;
 }
 
-const __DASHBOARD_FETCHED_FOR = new Set();
-
 export default function Dashboard() {
   const { t } = useTranslation();
+  const location = useLocation();
+
   const [storeId] = useState(() => String(getStoreId() || "").trim());
+  const [storeDisplayName, setStoreDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
 
   const [stats24, setStats24] = useState({ total: 0, by_status: {} });
@@ -287,6 +209,7 @@ export default function Dashboard() {
   );
 
   const [revenueSar, setRevenueSar] = useState(0);
+  const [prevRevenueSar, setPrevRevenueSar] = useState(0);
 
   const [trafficByPlatform, setTrafficByPlatform] = useState(() => {
     const obj = {};
@@ -310,6 +233,34 @@ export default function Dashboard() {
     return obj;
   });
 
+  // Responsive bar chart width
+  const chartContainerRef = useRef(null);
+  const [chartWidth, setChartWidth] = useState(980);
+
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) setChartWidth(Math.max(720, w));
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!storeId) return;
+    fetchStores()
+      .then((res) => {
+        const list = res?.data?.data || res?.data || [];
+        const match = list.find((s) => s?.store_id === storeId);
+        if (match?.store_name) setStoreDisplayName(match.store_name);
+      })
+      .catch(() => {});
+  }, [storeId]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -317,6 +268,7 @@ export default function Dashboard() {
       setStats24({ total: 0, by_status: {} });
       setStatsPrev24({ total: 0, by_status: {} });
       setRevenueSar(0);
+      setPrevRevenueSar(0);
 
       const t1 = {};
       for (const p of PLATFORMS) t1[p.key] = [...EMPTY_7];
@@ -327,9 +279,7 @@ export default function Dashboard() {
       setTrafficByPlatformPrevWeek(tPrev);
 
       const m = {};
-      for (const p of PLATFORMS) {
-        m[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
-      }
+      for (const p of PLATFORMS) m[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
       setPlatformMetrics(m);
 
       setPlatformDist(PLATFORMS.map((p) => ({ platform: p.key, value: 0, color: p.color })));
@@ -358,13 +308,12 @@ export default function Dashboard() {
       const byPlatform = new Map();
 
       const metrics = {};
-      for (const p of PLATFORMS) {
-        metrics[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
-      }
+      for (const p of PLATFORMS) metrics[p.key] = { total: 0, sent: 0, failed: 0, skipped: 0, pending: 0, revenue: 0 };
 
       const curBy = { sent: 0, failed: 0, skipped: 0, pending: 0 };
       const prevBy = { sent: 0, failed: 0, skipped: 0, pending: 0 };
       let parsedCount = 0;
+      let prevRevenue = 0;
 
       for (const row of rows) {
         const createdRaw = getAny(row, [
@@ -420,6 +369,23 @@ export default function Dashboard() {
           }
         } else if (tm >= last48Ms) {
           if (status) prevBy[status] += 1;
+
+          // Revenue from 24-48h ago for delta computation
+          if (status === "sent") {
+            const payload = safeParse(getAny(row, ["payload"]));
+            const amount =
+              payload?.data?.amounts?.total?.amount ??
+              payload?.data?.amounts?.sub_total?.amount ??
+              payload?.data?.total?.amount ??
+              payload?.data?.total ??
+              payload?.total?.amount ??
+              payload?.total ??
+              payload?.value ??
+              null;
+
+            const num = Number(amount);
+            if (Number.isFinite(num)) prevRevenue += num;
+          }
         }
 
         if (tm >= last7Ms) {
@@ -441,7 +407,6 @@ export default function Dashboard() {
           fallbackCur[p.key] = [...EMPTY_7];
           fallbackPrev[p.key] = [...EMPTY_7];
         }
-
         fallbackCur.GA4[6] = fallbackTotal;
 
         setTrafficByPlatform(fallbackCur);
@@ -461,6 +426,7 @@ export default function Dashboard() {
         );
 
         setRevenueSar(0);
+        setPrevRevenueSar(0);
         setTrafficAnchorMs(nowMs);
 
         return {
@@ -483,6 +449,7 @@ export default function Dashboard() {
 
       const totalRevenue = Object.values(metrics).reduce((s, m) => s + (Number(m.revenue) || 0), 0);
       setRevenueSar(totalRevenue);
+      setPrevRevenueSar(prevRevenue);
       setTrafficAnchorMs(nowMs);
 
       const curTotal = curBy.sent + curBy.failed + curBy.skipped + curBy.pending;
@@ -494,14 +461,7 @@ export default function Dashboard() {
       };
     };
 
-    const loadOnce = async () => {
-      const guardKey = storeId || "__NO_STORE__";
-      if (__DASHBOARD_FETCHED_FOR.has(guardKey)) {
-        setLoading(false);
-        return;
-      }
-      __DASHBOARD_FETCHED_FOR.add(guardKey);
-
+    const loadDashboard = async () => {
       try {
         setLoading(true);
 
@@ -544,6 +504,45 @@ export default function Dashboard() {
           });
         }
 
+        // Merge per-platform dispatch stats (Meta/TikTok/Snap) from event_dispatch_logs.
+        const dispatchData = s24.dispatch_by_platform || {};
+        const platKeyMap = { meta: "META", tiktok: "TIKTOK", snap: "SNAPCHAT" };
+        const hasDispatch = Object.values(dispatchData).some(
+          (d) => d && Object.values(d).some((v) => Number(v) > 0)
+        );
+
+        if (hasDispatch && !cancelled) {
+          setPlatformMetrics((prev) => {
+            const next = { ...prev };
+            for (const [plat, uiKey] of Object.entries(platKeyMap)) {
+              const d = dispatchData[plat];
+              if (!d) continue;
+              const total = Object.values(d).reduce((s, v) => s + clampNonNeg(v), 0);
+              if (total === 0) continue;
+              next[uiKey] = {
+                ...next[uiKey],
+                total,
+                sent: clampNonNeg(d.success),
+                failed: clampNonNeg(d.failed) + clampNonNeg(d.dead),
+                pending: clampNonNeg(d.pending) + clampNonNeg(d.retrying),
+                skipped: 0,
+              };
+            }
+            return next;
+          });
+
+          setPlatformDist((prev) =>
+            prev.map((item) => {
+              const entry = Object.entries(platKeyMap).find(([, k]) => k === item.platform);
+              if (!entry) return item;
+              const d = dispatchData[entry[0]];
+              if (!d) return item;
+              const total = Object.values(d).reduce((s, v) => s + clampNonNeg(v), 0);
+              return total > 0 ? { ...item, value: total } : item;
+            })
+          );
+        }
+
         setLoading(false);
       } catch {
         if (cancelled) return;
@@ -551,17 +550,16 @@ export default function Dashboard() {
       }
     };
 
-    loadOnce();
+    loadDashboard();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId, location.key]);
 
   const summary = useMemo(() => {
     const by = stats24.by_status || {};
     const total = clampNonNeg(stats24.total);
-
     const sent = clampNonNeg(by.sent);
     const failed = clampNonNeg(by.failed);
     const skipped = clampNonNeg(by.skipped);
@@ -576,7 +574,6 @@ export default function Dashboard() {
   const prevSummary = useMemo(() => {
     const by = statsPrev24.by_status || {};
     const total = clampNonNeg(statsPrev24.total);
-
     return {
       total,
       sent: clampNonNeg(by.sent),
@@ -590,13 +587,7 @@ export default function Dashboard() {
     const IconTotal = (
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z" fill="currentColor" opacity="0.18" />
-        <path
-          d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-        />
+        <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
         <path d="M9 8h6M9 12h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       </svg>
     );
@@ -627,25 +618,20 @@ export default function Dashboard() {
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 3a9 9 0 1 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         <path d="M12 7v10" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" />
-        <path
-          d="M15 9.2c0-1.3-1.3-2.2-3-2.2s-3 .9-3 2.2 1.1 2 3 2.3 3 1 3 2.3-1.3 2.2-3 2.2-3-.9-3-2.2"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M15 9.2c0-1.3-1.3-2.2-3-2.2s-3 .9-3 2.2 1.1 2 3 2.3 3 1 3 2.3-1.3 2.2-3 2.2-3-.9-3-2.2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
+
+    const revDelta = pctDelta(revenueSar, prevRevenueSar);
 
     return [
       { label: t("kpiTotalEvents"), value: summary.total, delta: pctDelta(summary.total, prevSummary.total), icon: IconTotal, tone: "blue" },
       { label: t("kpiSent"), value: summary.sent, delta: pctDelta(summary.sent, prevSummary.sent), icon: IconSent, tone: "green" },
       { label: t("kpiFailed"), value: summary.failed, delta: pctDelta(summary.failed, prevSummary.failed), icon: IconFailed, tone: "pink" },
       { label: t("kpiSkipped"), value: summary.skipped, delta: pctDelta(summary.skipped, prevSummary.skipped), icon: IconSkipped, tone: "yellow" },
-      { label: t("kpiRevenue"), value: `SAR ${formatMoney(revenueSar)}`, delta: 0, icon: IconRevenue, tone: "blue", isMoney: true },
+      { label: t("kpiRevenue"), value: `SAR ${formatMoney(revenueSar)}`, delta: revDelta, icon: IconRevenue, tone: "blue", isMoney: true },
     ];
-  }, [summary, prevSummary, revenueSar, t]);
+  }, [summary, prevSummary, revenueSar, prevRevenueSar, t]);
 
   const trafficTrend = useMemo(() => {
     const activeBuckets = trafficTimeframe === "current" ? trafficByPlatform : trafficByPlatformPrevWeek;
@@ -653,7 +639,6 @@ export default function Dashboard() {
 
     if (trafficMode === "weekly") {
       const labels = PLATFORMS.map((p) => p.name);
-
       const curTotals = PLATFORMS.map((p) => (trafficByPlatform[p.key] || EMPTY_7).reduce((a, b) => a + b, 0));
       const prevTotals = PLATFORMS.map((p) => (trafficByPlatformPrevWeek[p.key] || EMPTY_7).reduce((a, b) => a + b, 0));
 
@@ -673,28 +658,17 @@ export default function Dashboard() {
     const labels = [];
     if (trafficTimeframe === "current") {
       const start = trafficAnchorMs - 7 * dayMs;
-      for (let i = 0; i < 7; i += 1) {
-        const d = new Date(start + i * dayMs);
-        labels.push(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
-      }
+      for (let i = 0; i < 7; i += 1) labels.push(new Date(start + i * dayMs).toLocaleDateString(undefined, { month: "short", day: "numeric" }));
     } else {
       const start = trafficAnchorMs - 14 * dayMs;
-      for (let i = 0; i < 7; i += 1) {
-        const d = new Date(start + i * dayMs);
-        labels.push(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
-      }
+      for (let i = 0; i < 7; i += 1) labels.push(new Date(start + i * dayMs).toLocaleDateString(undefined, { month: "short", day: "numeric" }));
     }
 
     return {
       mode: "daily",
       subtitle,
       labels,
-      series: PLATFORMS.map((p) => ({
-        platformKey: p.key,
-        name: p.name,
-        color: p.color,
-        data: activeBuckets[p.key] || EMPTY_7,
-      })),
+      series: PLATFORMS.map((p) => ({ platformKey: p.key, name: p.name, color: p.color, data: activeBuckets[p.key] || EMPTY_7 })),
     };
   }, [trafficByPlatform, trafficByPlatformPrevWeek, trafficMode, trafficTimeframe, trafficAnchorMs, t]);
 
@@ -726,7 +700,9 @@ export default function Dashboard() {
     <div className="dash">
       <div className="topbar">
         <div className="brandArea">
-          <div className="logoBubble">∿</div>
+          <div className="logoBubble">
+            <Layers size={20} />
+          </div>
           <div>
             <div className="brandTitle">{t("dashTitle")}</div>
             <div className="brandSub">{t("dashSubtitle")}</div>
@@ -736,7 +712,7 @@ export default function Dashboard() {
         <div className="topbarRight">
           <div className="storeChip">
             <span className="dotLive" />
-            {t("dashStore")}: <b>{storeId || "N/A"}</b>
+            {t("dashStore")}: <b>{storeDisplayName || storeId || "N/A"}</b>
           </div>
           <div className="rangeChip">{t("dashLast24h")}</div>
         </div>
@@ -755,7 +731,7 @@ export default function Dashboard() {
                 </div>
               </div>
             ))
-          : kpis.map((k) => <KPI key={k.label} {...k} />)}
+          : kpis.map((k) => <KPI key={k.label} {...k} t={t} />)}
       </div>
 
       <div className="mainGrid">
@@ -768,25 +744,17 @@ export default function Dashboard() {
             <span className="pill blue">{t("trafficPill")}</span>
           </div>
 
-          <div className="cardBody">
+          <div className="cardBody" ref={chartContainerRef}>
             {loading ? (
               <Skeleton height={300} />
             ) : (
               <>
                 <div className="trafficControls">
                   <div className="trafficToggle">
-                    <button
-                      type="button"
-                      className={`toggleBtn ${trafficMode === "daily" ? "active" : ""}`}
-                      onClick={() => setTrafficMode("daily")}
-                    >
+                    <button type="button" className={`toggleBtn ${trafficMode === "daily" ? "active" : ""}`} onClick={() => setTrafficMode("daily")}>
                       {t("trafficDaily")}
                     </button>
-                    <button
-                      type="button"
-                      className={`toggleBtn ${trafficMode === "weekly" ? "active" : ""}`}
-                      onClick={() => setTrafficMode("weekly")}
-                    >
+                    <button type="button" className={`toggleBtn ${trafficMode === "weekly" ? "active" : ""}`} onClick={() => setTrafficMode("weekly")}>
                       {t("trafficWeekly")}
                     </button>
                   </div>
@@ -794,18 +762,10 @@ export default function Dashboard() {
                   {trafficMode === "daily" && (
                     <div className="weekScroller">
                       <div className="weekStrip">
-                        <button
-                          type="button"
-                          className={`toggleBtn ${trafficTimeframe === "current" ? "active" : ""}`}
-                          onClick={() => setTrafficTimeframe("current")}
-                        >
+                        <button type="button" className={`toggleBtn ${trafficTimeframe === "current" ? "active" : ""}`} onClick={() => setTrafficTimeframe("current")}>
                           {t("trafficThisWeek")}
                         </button>
-                        <button
-                          type="button"
-                          className={`toggleBtn ${trafficTimeframe === "previous" ? "active" : ""}`}
-                          onClick={() => setTrafficTimeframe("previous")}
-                        >
+                        <button type="button" className={`toggleBtn ${trafficTimeframe === "previous" ? "active" : ""}`} onClick={() => setTrafficTimeframe("previous")}>
                           {t("trafficPreviousWeek")}
                         </button>
                       </div>
@@ -815,15 +775,15 @@ export default function Dashboard() {
 
                 <BarLegend series={trafficTrend.series} />
 
-                <div className="chartScroll">
-                  <div className="chartInner">
-                    <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} />
-                  </div>
-                </div>
-
                 {trafficTrend.series.every((s) => (s.data || []).every((x) => Number(x || 0) === 0)) && (
                   <div className="emptyChartNote">{t("trafficEmpty")}</div>
                 )}
+
+                <div className="chartScroll">
+                  <div className="chartInner">
+                    <GroupedBarChart labels={trafficTrend.labels} series={trafficTrend.series} width={chartWidth} />
+                  </div>
+                </div>
               </>
             )}
           </div>
@@ -850,11 +810,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <AnimatedDonutDistribution
-                items={platformDist}
-                centerTitle="Total Events"
-                centerValue={formatMoney(summary.total)}
-              />
+              <AnimatedDonutDistribution items={platformDist} centerTitle="Total Events" centerValue={formatMoney(summary.total)} />
             )}
           </div>
         </div>
@@ -883,25 +839,36 @@ export default function Dashboard() {
   );
 }
 
-function KPI({ label, value, delta, icon, tone, isMoney }) {
+function KPI({ label, value, delta, icon, tone, isMoney, t }) {
   const d = Number(delta || 0);
   const isUp = d >= 0;
   const abs = Math.abs(d);
+  const showDelta = isMoney ? (d !== 0) : true;
+
+  const toneColors = {
+    blue: { bg: "rgba(13,110,253,0.10)", color: "#0D6EFD" },
+    green: { bg: "rgba(25,135,84,0.10)", color: "#198754" },
+    pink: { bg: "rgba(171,46,60,0.10)", color: "#AB2E3C" },
+    yellow: { bg: "rgba(255,193,7,0.10)", color: "#B45309" },
+  };
+  const tc = toneColors[tone] || toneColors.blue;
 
   return (
     <div className={`kpi tone-${tone}`}>
       <div className="kpiTop">
         <div className="kpiLabel">{label}</div>
-        <div className="kpiIcon">{icon}</div>
+        <div className="kpiIcon" style={{ background: tc.bg, color: tc.color }}>
+          {icon}
+        </div>
       </div>
 
       <div className="kpiValue">{value}</div>
 
       <div className="kpiBottom">
         <div className={`delta ${isUp ? "up" : "down"}`}>
-          {isMoney ? "—" : `${isUp ? "▲" : "▼"} ${abs.toFixed(0)}%`}
+          {showDelta ? `${isUp ? "\u25B2" : "\u25BC"} ${abs.toFixed(0)}%` : "\u2014"}
         </div>
-        <div className="kpiHint">vs previous 24h</div>
+        <div className="kpiHint">{t("kpiVsPrev24h")}</div>
       </div>
     </div>
   );
@@ -909,6 +876,8 @@ function KPI({ label, value, delta, icon, tone, isMoney }) {
 
 function PlatformCard({ platformKey, name, desc, pill, tone, accent, stats }) {
   const { t } = useTranslation();
+  const hasEvents = stats.forwarded > 0;
+
   return (
     <div className="pCard">
       <div className="pBody">
@@ -931,12 +900,23 @@ function PlatformCard({ platformKey, name, desc, pill, tone, accent, stats }) {
           </div>
         </div>
 
-        <div className="pStats">
-          <StatMini label={t("platformCardForwarded")} value={stats.forwarded} />
-          <StatMini label={t("platformCardSuccess")} value={`${stats.successRate}%`} />
-          <StatMini label={t("platformCardRevenue")} value={`SAR ${formatMoney(stats.revenue)}`} />
-          <StatMini label={t("platformCardLoss")} value={`${stats.loss}%`} />
-        </div>
+        {hasEvents ? (
+          <div className="pStats">
+            <StatMini label={t("platformCardForwarded")} value={stats.forwarded} />
+            <StatMini label={t("platformCardSuccess")} value={`${stats.successRate}%`} />
+            <StatMini label={t("platformCardRevenue")} value={`SAR ${formatMoney(stats.revenue)}`} />
+            <StatMini label={t("platformCardLoss")} value={`${stats.loss}%`} />
+          </div>
+        ) : (
+          <div className="pEmptyState">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z" fill="rgba(15,23,42,0.04)" stroke="rgba(15,23,42,0.2)" strokeWidth="1.5" />
+              <path d="M8 12h8M12 8v8" stroke="rgba(15,23,42,0.25)" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <div className="pEmptyTitle">{t("platformCardNoEvents")}</div>
+            <div className="pEmptyDesc">{t("platformCardNoEventsDesc")}</div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -970,9 +950,9 @@ function BarLegend({ series = [] }) {
   );
 }
 
-function GroupedBarChart({ labels = [], series = [] }) {
-  const W = 980,
-    H = 300;
+function GroupedBarChart({ labels = [], series = [], width = 980 }) {
+  const W = width;
+  const H = 300;
   const PAD_X = 44,
     PAD_TOP = 18,
     PAD_BOTTOM = 40;
@@ -997,15 +977,7 @@ function GroupedBarChart({ labels = [], series = [] }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="300" style={{ display: "block" }}>
       {labels.map((lb, i) => (
-        <text
-          key={lb}
-          x={x0(i) + groupW / 2}
-          y={H - 12}
-          textAnchor="middle"
-          fontSize="12"
-          fill="rgba(15,23,42,0.55)"
-          fontWeight="900"
-        >
+        <text key={lb} x={x0(i) + groupW / 2} y={H - 12} textAnchor="middle" fontSize="12" fill="rgba(15,23,42,0.55)" fontWeight="700">
           {lb}
         </text>
       ))}
@@ -1014,18 +986,7 @@ function GroupedBarChart({ labels = [], series = [] }) {
         <g key={i}>
           {series.map((s, j) => {
             const v = s.data?.[i] ?? 0;
-            return (
-              <rect
-                key={`${i}-${j}`}
-                x={barX(i, j)}
-                y={y(v)}
-                width={barW}
-                height={barH(v)}
-                rx="10"
-                fill={s.color}
-                opacity={0.95}
-              />
-            );
+            return <rect key={`${i}-${j}`} x={barX(i, j)} y={y(v)} width={barW} height={barH(v)} rx="10" fill={s.color} opacity={0.95} />;
           })}
         </g>
       ))}
@@ -1064,7 +1025,6 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
         <div className="donutStage">
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
             <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(15,23,42,0.08)" strokeWidth={stroke} />
-
             <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
               {slices.map((a) => (
                 <circle
@@ -1128,7 +1088,7 @@ function AnimatedDonutDistribution({ items = [], centerTitle, centerValue }) {
                 <div className="donutItemText">
                   <div className="donutItemName">{a.platform}</div>
                   <div className="donutItemSub">
-                    {formatMoney(a.value)} • <b>{pct}%</b>
+                    {formatMoney(a.value)} &bull; <b>{pct}%</b>
                   </div>
                 </div>
                 <div className="donutPill">{pct}%</div>
@@ -1164,62 +1124,46 @@ const css = `
 
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
 .brandArea{display:flex;align-items:center;gap:10px;}
-.logoBubble{width:44px;height:44px;border-radius:16px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--a),var(--b));font-weight:1200;}
-.brandTitle{font-size:16px;font-weight:1100;color:#0f172a;}
-.brandSub{margin-top:2px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
+.logoBubble{width:44px;height:44px;border-radius:16px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--a),var(--b));font-weight:900;}
+.brandTitle{font-size:16px;font-weight:800;color:#0f172a;}
+.brandSub{margin-top:2px;font-size:12px;font-weight:600;color:rgba(15,23,42,0.55);}
 .topbarRight{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
-.storeChip{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:999px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);font-size:12px;font-weight:950;color:rgba(15,23,42,0.72);}
+.storeChip{display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:999px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);font-size:12px;font-weight:700;color:rgba(15,23,42,0.72);}
 .dotLive{width:10px;height:10px;border-radius:999px;background:var(--g);box-shadow:0 0 0 6px rgba(25,135,84,0.14);}
-.rangeChip{padding:10px 12px;border-radius:999px;background:rgba(13,202,240,0.12);border:1px solid rgba(13,202,240,0.22);font-size:12px;font-weight:950;color:#055a66;}
+.rangeChip{padding:10px 12px;border-radius:999px;background:rgba(13,202,240,0.12);border:1px solid rgba(13,202,240,0.22);font-size:12px;font-weight:700;color:#055a66;}
 
 .grid5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;}
 @media (max-width:1250px){.grid5{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:560px){.dash{padding:12px;}.grid5{grid-template-columns:1fr;}}
 
-.mainGrid {
-  width: 100%;
-  max-width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 14px;
-  align-items: stretch;
+.mainGrid{
+  width:100%;
+  max-width:100%;
+  display:grid;
+  grid-template-columns:minmax(0,2fr) minmax(0,1fr);
+  gap:14px;
+  align-items:stretch;
+  grid-auto-rows: 1fr;
 }
 
-.mainGrid > .card {
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
+.mainGrid > .card{
+  min-width:0;
+  max-width:100%;
+  height:100%;
+  overflow:hidden;
 }
 
-.cardHead,
-.cardBody,
-.cardBodyDist {
-  min-width: 0;
-  max-width: 100%;
+.mainGrid > .card .cardBody{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  min-height: 340px;
+  min-width:0;
 }
 
-.chartScroll {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.chartInner {
-  min-width: 720px;
-  max-width: 100%;
-}
-
-.donutWrap,
-.donutLeft,
-.donutRight,
-.donutLegend {
-  min-width: 0;
-  max-width: 100%;
-}
-
-@media (max-width: 980px) {
-  .mainGrid {
-    grid-template-columns: 1fr;
-  }
+@media (max-width:980px){
+  .mainGrid{grid-template-columns:1fr;}
+  .mainGrid > .card .cardBody{min-height: 320px;}
 }
 
 .card{
@@ -1229,35 +1173,107 @@ const css = `
   border:1px solid rgba(15,23,42,0.10);
   display:flex;
   flex-direction:column;
+  overflow:hidden;
 }
+
+.cardHead{display:flex;justify-content:space-between;gap:12px;}
+.cardTitle{font-size:15px;font-weight:800;color:#0f172a;}
+.cardSub{margin-top:4px;font-size:12px;font-weight:600;color:rgba(15,23,42,0.55);}
+.card.premium{background:rgba(255,255,255,0.90);}
+
 .cardBody{
   flex:1;
   padding-top:10px;
-  min-height: 320px;
-  position: relative;
+  position:relative;
+  min-width:0;
 }
+
 .chartScroll{
   width:100%;
+  flex: 1;
+  min-height: 0;
   overflow-x:auto;
+  overflow-y:hidden;
   padding-bottom:6px;
   margin-top:4px;
+  display:flex;
+  align-items:flex-end;
 }
-.chartInner{min-width:720px;}
+
+.chartInner{
+  min-width:720px;
+  max-width:100%;
+  width:100%;
+  display:flex;
+  align-items:flex-end;
+}
+
 .emptyChartNote{
-  position:absolute;
-  left:14px;
-  bottom:12px;
+  width:100%;
+  padding:28px 0 20px;
+  text-align:center;
   font-size:12px;
-  font-weight:900;
+  font-weight:700;
   color:rgba(15,23,42,0.45);
 }
-.cardBodyDist{display:flex;align-items:center;justify-content:center;}
-.cardHead{display:flex;justify-content:space-between;gap:12px;}
-.cardTitle{font-size:15px;font-weight:1150;color:#0f172a;}
-.cardSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
-.card.premium{background:rgba(255,255,255,0.90);}
 
-.pill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);}
+.cardBodyDist{
+  flex:1;
+  display:flex;
+  align-items:stretch;
+  justify-content:stretch;
+  width:100%;
+  min-height:0;
+}
+
+.donutWrap{
+  width:100%;
+  height:100%;
+  display:flex;
+  flex-wrap:wrap;
+  gap:14px;
+  align-items:center;
+  justify-content:center;
+  min-width:0;
+}
+
+.donutLeft{
+  flex: 0 1 240px;
+  min-width: 220px;
+  max-width: 100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.donutRight{
+  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-width:0;
+}
+
+@media (max-width:980px){
+  .donutWrap{flex-direction:column; align-items:center;}
+  .donutRight{width:100%;}
+}
+
+.donutLegend{
+  width:100%;
+  max-width: 360px;
+  max-height: 100%;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding-right:4px;
+  min-width:0;
+}
+
+.pill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid rgba(15,23,42,0.10);}
 .pill.blue{background:rgba(13,110,253,0.14);border-color:rgba(13,110,253,0.22);color:#083b8a;}
 .pill.cyan{background:rgba(13,202,240,0.14);border-color:rgba(13,202,240,0.22);color:#055a66;}
 
@@ -1291,7 +1307,7 @@ const css = `
   padding:6px 11px;
   border-radius:999px;
   font-size:11px;
-  font-weight:1000;
+  font-weight:700;
   color:rgba(15,23,42,0.60);
   cursor:pointer;
   white-space:nowrap;
@@ -1304,12 +1320,12 @@ const css = `
 
 .kpi{border-radius:22px;padding:16px;background:rgba(255,255,255,0.90);border:1px solid rgba(15,23,42,0.10);}
 .kpiTop{display:flex;justify-content:space-between;align-items:center;}
-.kpiLabel{font-size:13px;font-weight:950;color:rgba(15,23,42,0.65);}
-.kpiIcon{width:44px;height:44px;border-radius:18px;display:grid;place-items:center;background:rgba(15,23,42,0.05);}
-.kpiValue{margin-top:10px;font-size:28px;font-weight:1200;color:#0f172a;}
+.kpiLabel{font-size:13px;font-weight:700;color:rgba(15,23,42,0.65);}
+.kpiIcon{width:44px;height:44px;border-radius:18px;display:grid;place-items:center;}
+.kpiValue{margin-top:10px;font-size:28px;font-weight:900;color:#0f172a;}
 .kpiBottom{margin-top:10px;display:flex;justify-content:space-between;align-items:center;}
-.kpiHint{font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
-.delta{font-size:12px;font-weight:1100;padding:7px 10px;border-radius:999px;border:1px solid rgba(15,23,42,0.10);}
+.kpiHint{font-size:12px;font-weight:600;color:rgba(15,23,42,0.55);}
+.delta{font-size:12px;font-weight:800;padding:7px 10px;border-radius:999px;border:1px solid rgba(15,23,42,0.10);}
 .delta.up{background:rgba(25,135,84,0.14);border-color:rgba(25,135,84,0.22);color:#0b3d1f;}
 .delta.down{background:rgba(171,46,60,0.14);border-color:rgba(171,46,60,0.22);color:#6b0d16;}
 
@@ -1317,131 +1333,109 @@ const css = `
   display:flex;
   flex-wrap:wrap;
   gap:10px;
-  margin: 2px 0 10px;
-  padding-left: 2px;
+  margin:2px 0 10px;
+  padding-left:2px;
 }
 .barLegendItem{
   display:flex;
   align-items:center;
   gap:8px;
   font-size:12px;
-  font-weight:900;
-  color: rgba(15,23,42,0.65);
+  font-weight:700;
+  color:rgba(15,23,42,0.65);
 }
 
-.donutWrap{
-  width:100%;
-  display:flex;
-  gap:12px;
-  align-items:center;
-  justify-content:center;
-}
-.donutLeft{
-  flex: 0 0 240px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-.donutRight{
-  flex:1;
-  min-width: 0;
-  display:flex;
-  justify-content:center;
-}
-@media (max-width:980px){
-  .donutWrap{ flex-direction:column; }
-  .donutLeft{ flex: 0 0 auto; }
-  .donutRight{ width:100%; }
-}
-.donutStage{display:grid;place-items:center;}
+.donutStage{display:grid;place-items:center;max-width:100%;}
 .donutArc{transform-origin:50% 50%;animation:donutIn 900ms cubic-bezier(.2,.9,.2,1) both;}
 @keyframes donutIn{from{stroke-dasharray:0 9999;opacity:0.2;}to{opacity:1;}}
 .donutCenter{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;}
-.donutTitle{font-size:12px;font-weight:950;color:rgba(15,23,42,0.55);}
-.donutValue{font-size:16px;font-weight:1200;color:#0f172a;}
-.donutActive{font-size:12px;font-weight:950;color:rgba(15,23,42,0.75);display:flex;align-items:center;gap:8px;}
+.donutTitle{font-size:12px;font-weight:700;color:rgba(15,23,42,0.55);}
+.donutValue{font-size:16px;font-weight:900;color:#0f172a;}
+.donutActive{font-size:12px;font-weight:700;color:rgba(15,23,42,0.75);display:flex;align-items:center;gap:8px;}
 .donutActive.muted{color:rgba(15,23,42,0.45);}
 .dot{width:10px;height:10px;border-radius:999px;display:inline-block;}
 
-.donutLegend{
-  width:100%;
-  max-width: 320px;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-  max-height: 260px;
-  overflow:auto;
-  padding-right: 4px;
-}
 .donutItem{display:flex;align-items:center;gap:10px;padding:10px;border-radius:16px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
-.donutItemText{flex:1;}
-.donutItemName{font-size:13px;font-weight:1100;color:#0f172a;}
-.donutItemSub{margin-top:4px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
-.donutPill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:1100;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.75);color:rgba(15,23,42,0.75);}
+.donutItemText{flex:1;min-width:0;}
+.donutItemName{font-size:13px;font-weight:800;color:#0f172a;}
+.donutItemSub{margin-top:4px;font-size:12px;font-weight:600;color:rgba(15,23,42,0.55);}
+.donutPill{padding:7px 10px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.75);color:rgba(15,23,42,0.75);}
 
 .platformGrid{
   display:grid;
-  grid-template-columns: repeat(4, minmax(0,1fr));
+  grid-template-columns:repeat(4, minmax(0,1fr));
   gap:14px;
-  align-items: stretch;
+  align-items:stretch;
 }
 @media (max-width:1200px){
-  .platformGrid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .platformGrid{grid-template-columns:repeat(2, minmax(0,1fr));}
 }
 @media (max-width:640px){
-  .platformGrid{ grid-template-columns: 1fr; }
+  .platformGrid{grid-template-columns:1fr;}
 }
 
 .pCard{border-radius:22px;overflow:hidden;border:1px solid rgba(15,23,42,0.10);background:rgba(255,255,255,0.86);display:flex;flex-direction:column;}
 .pBody{padding:14px 16px 16px;flex:1;display:flex;flex-direction:column;}
 .pTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
 .pLeft{display:flex;align-items:center;gap:10px;min-width:0;}
-.pName{font-size:14px;font-weight:1100;color:#0f172a;}
-.pDesc{margin-top:3px;font-size:12px;font-weight:850;color:rgba(15,23,42,0.55);}
-.pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:1050;border:1px solid rgba(15,23,42,0.10);white-space:nowrap;}
+.pName{font-size:14px;font-weight:800;color:#0f172a;}
+.pDesc{margin-top:3px;font-size:12px;font-weight:600;color:rgba(15,23,42,0.55);}
+.pPill{padding:6px 10px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid rgba(15,23,42,0.10);white-space:nowrap;}
 .pStats{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .mini{border-radius:16px;padding:10px;border:1px solid rgba(15,23,42,0.08);background:rgba(15,23,42,0.03);}
-.miniLabel{font-size:11px;font-weight:950;color:rgba(15,23,42,0.55);}
-.miniValue{margin-top:6px;font-size:14px;font-weight:1150;color:#0f172a;}
+.miniLabel{font-size:11px;font-weight:700;color:rgba(15,23,42,0.55);}
+.miniValue{margin-top:6px;font-size:14px;font-weight:800;color:#0f172a;}
+
+.pEmptyState{
+  margin-top:14px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+  padding:18px 10px;
+  border-radius:16px;
+  border:1px dashed rgba(15,23,42,0.12);
+  background:rgba(15,23,42,0.02);
+  text-align:center;
+}
+.pEmptyTitle{font-size:13px;font-weight:700;color:rgba(15,23,42,0.55);}
+.pEmptyDesc{font-size:12px;font-weight:600;color:rgba(15,23,42,0.40);max-width:200px;}
 
 .platIcon{
-  width: 28px;
-  height: 28px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(255,255,255,0.85);
-  border: 1px solid rgba(15,23,42,0.10);
-  box-shadow: 0 8px 16px rgba(2,6,23,0.10);
-  flex: 0 0 auto;
+  width:28px;
+  height:28px;
+  border-radius:12px;
+  display:grid;
+  place-items:center;
+  background:rgba(255,255,255,0.85);
+  border:1px solid rgba(15,23,42,0.10);
+  box-shadow:0 8px 16px rgba(2,6,23,0.10);
+  flex:0 0 auto;
 }
 .platIcon.sm{
-  width: 22px;
-  height: 22px;
-  border-radius: 10px;
-  box-shadow: 0 6px 14px rgba(2,6,23,0.10);
+  width:22px;
+  height:22px;
+  border-radius:10px;
+  box-shadow:0 6px 14px rgba(2,6,23,0.10);
 }
-.platImg{
-  object-fit: contain;
-  display: block;
-}
+.platImg{object-fit:contain;display:block;}
 
 .pLogo{
-  width: 40px;
-  height: 40px;
-  border-radius: 16px;
-  padding: 1px;
-  box-shadow: 0 12px 22px rgba(2,6,23,0.14);
-  border: 1px solid rgba(15,23,42,0.10);
-  flex: 0 0 auto;
+  width:40px;
+  height:40px;
+  border-radius:16px;
+  padding:1px;
+  box-shadow:0 12px 22px rgba(2,6,23,0.14);
+  border:1px solid rgba(15,23,42,0.10);
+  flex:0 0 auto;
   display:grid;
   place-items:center;
 }
 .pLogoInner{
-  width: 100%;
-  height: 100%;
-  border-radius: 15px;
-  background: rgba(255,255,255,0.92);
+  width:100%;
+  height:100%;
+  border-radius:15px;
+  background:rgba(255,255,255,0.92);
   display:grid;
   place-items:center;
 }

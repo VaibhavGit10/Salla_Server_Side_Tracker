@@ -84,8 +84,20 @@ export async function saveAndValidateGa4(req, res) {
     });
   } catch (err) {
     const msg = err?.message || "GA4 validation failed";
-    console.error("GA4 validation failed:", msg);
-    return res.status(400).json({ ok: false, error: msg });
+    console.error("GA4 validation failed:", msg, {
+      reason: err?.reason,
+      http_status: err?.http_status,
+      response_body: err?.response_body,
+      validation_messages: err?.validation_messages
+    });
+    return res.status(400).json({
+      ok: false,
+      error: msg,
+      reason: err?.reason,
+      http_status: err?.http_status,
+      response_body: err?.response_body,
+      validation_messages: err?.validation_messages
+    });
   }
 }
 

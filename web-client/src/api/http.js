@@ -35,6 +35,22 @@ export async function apiPost(path, body) {
   });
 
   const data = await parseJson(res);
+  if (!res.ok) {
+    const err = new Error(data?.error || data?.message || "API error");
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+export async function apiDelete(path) {
+  const res = await fetch(joinUrl(BASE_URL, path), {
+    method: "DELETE",
+    headers: { "Accept": "application/json" }
+  });
+
+  const data = await parseJson(res);
   if (!res.ok) throw new Error(data?.error || data?.message || "API error");
   return data;
 }

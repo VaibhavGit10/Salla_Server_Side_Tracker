@@ -1,18 +1,43 @@
 :root {
-  /* Theme */
-  --p: #191c24;
-  --a: #af1763;
+  /* ── Semantic Design Tokens ── */
+  --primary: #191c24;
+  --accent: #af1763;
+  --blue: #0d6efd;
+  --green: #198754;
+  --cyan: #0dcaf0;
+  --red: #ab2e3c;
+  --yellow: #ffc107;
 
-  --b: #0d6efd;
-  --g: #198754;
-  --c: #0dcaf0;
-  --r: #ab2e3c;
-  --y: #ffc107;
+  /* Backward-compat aliases */
+  --p: var(--primary);
+  --a: var(--accent);
+  --b: var(--blue);
+  --g: var(--green);
+  --c: var(--cyan);
+  --r: var(--red);
+  --y: var(--yellow);
 
+  /* Surface & Text */
   --pageBg: #f3f4f6;
   --text: #0f172a;
   --muted: rgba(15, 23, 42, 0.62);
   --border: rgba(15, 23, 42, 0.1);
+
+  /* shadcn-style tokens */
+  --radius: 16px;
+  --radius-sm: 12px;
+  --radius-lg: 22px;
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 22px 70px rgba(15, 23, 42, 0.1);
+
+  /* Spacing scale (8px grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
 }
 
 /* Reset */
@@ -31,7 +56,7 @@ body {
 }
 
 /* =========================
-   ✅ APP LAYOUT
+   APP LAYOUT
 ========================= */
 .appShell {
   display: flex;
@@ -40,7 +65,6 @@ body {
   background: var(--pageBg);
 }
 
-/* ✅ Fix overflow + right blank space */
 .appMain {
   flex: 1;
   min-width: 0;
@@ -55,7 +79,7 @@ body {
 }
 
 /* =========================
-   ✅ CONTAINER (ALL PAGES)
+   CONTAINER (ALL PAGES)
 ========================= */
 .container {
   width: 100%;
@@ -66,17 +90,6 @@ body {
     var(--pageBg);
 }
 
-/* .containerHeader {
-  width: 100%;
-  padding: 18px;
-  border-radius: 22px;
-  border: 1px solid var(--border);
-  background: radial-gradient(circle at 12% 20%, rgba(175, 23, 99, 0.14), transparent 55%),
-    radial-gradient(circle at 92% 20%, rgba(13, 202, 240, 0.1), transparent 55%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.74));
-  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.1);
-} */
-
 .containerTitleWrap {
   min-width: 0;
 }
@@ -84,7 +97,7 @@ body {
 .containerTitle {
   margin: 0;
   font-size: 20px;
-  font-weight: 1100;
+  font-weight: 900;
   letter-spacing: -0.4px;
   color: var(--text);
 }
@@ -92,7 +105,7 @@ body {
 .containerSubtitle {
   margin: 6px 0 0;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--muted);
 }
 
@@ -115,7 +128,7 @@ body {
 }
 
 /* =========================
-   ✅ SIDEBAR
+   SIDEBAR
 ========================= */
 .sbTopbar {
   display: none;
@@ -143,7 +156,7 @@ body {
   gap: 5px;
   padding: 0 12px;
   cursor: pointer;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-sm);
   flex-shrink: 0;
 }
 
@@ -168,22 +181,22 @@ body {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  font-weight: 1000;
+  font-weight: 900;
   color: #fff;
-  background: linear-gradient(135deg, var(--a), var(--b));
+  background: linear-gradient(135deg, var(--accent), var(--blue));
   flex-shrink: 0;
 }
 
 .sbTopbarTitle {
   font-size: 14px;
-  font-weight: 1100;
+  font-weight: 800;
   color: var(--text);
 }
 
 .sbTopbarSub {
   margin-top: 2px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--muted);
 }
 
@@ -203,7 +216,7 @@ body {
   pointer-events: auto;
 }
 
-/* ✅ Fixed sidebar size */
+/* Fixed sidebar size */
 .sb {
   width: 280px;
   min-width: 280px;
@@ -216,7 +229,7 @@ body {
   padding: 18px 14px;
   background: radial-gradient(circle at 14% 12%, rgba(175, 23, 99, 0.18) 0%, transparent 56%),
     radial-gradient(circle at 92% 22%, rgba(13, 202, 240, 0.14) 0%, transparent 58%),
-    linear-gradient(180deg, var(--p) 0%, #151822 100%);
+    linear-gradient(180deg, var(--primary) 0%, #151822 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.92);
   overflow: hidden;
@@ -256,20 +269,20 @@ body {
   display: grid;
   place-items: center;
   font-size: 20px;
-  font-weight: 1000;
+  font-weight: 900;
   color: #fff;
-  background: linear-gradient(135deg, var(--a), var(--b));
+  background: linear-gradient(135deg, var(--accent), var(--blue));
 }
 
 .sbTitle {
   font-size: 15px;
-  font-weight: 1100;
+  font-weight: 800;
 }
 
 .sbSub {
   margin-top: 2px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   color: rgba(255, 255, 255, 0.65);
 }
 
@@ -281,16 +294,16 @@ body {
   padding: 6px 2px;
 }
 
-/* ✅ NO JUMP Active */
+/* NO JUMP Active */
 .sbLink {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px 12px 12px 18px;
-  border-radius: 16px;
+  border-radius: var(--radius);
   text-decoration: none;
   color: rgba(255, 255, 255, 0.74);
-  font-weight: 900;
+  font-weight: 600;
   font-size: 14px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
@@ -315,7 +328,7 @@ body {
 }
 
 .sbLink.active::before {
-  background: linear-gradient(180deg, var(--b), var(--a));
+  background: linear-gradient(180deg, var(--blue), var(--accent));
 }
 
 .sbIcon {
@@ -352,7 +365,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -361,12 +374,21 @@ body {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: var(--g);
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.sbHealthDot.error {
+  background: var(--red);
+}
+
+.sbHealthDot.checking {
+  background: var(--yellow);
 }
 
 .sbHealthText {
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
   flex: 1;
 }
 
@@ -374,7 +396,7 @@ body {
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1100;
+  font-weight: 700;
   color: #d1fae5;
   background: rgba(25, 135, 84, 0.16);
   border: 1px solid rgba(25, 135, 84, 0.22);
@@ -396,7 +418,7 @@ body {
   border-radius: 16px;
   display: grid;
   place-items: center;
-  font-weight: 1100;
+  font-weight: 800;
   color: #fff;
   background: linear-gradient(135deg, rgba(175, 23, 99, 0.4), rgba(13, 202, 240, 0.18));
 }
@@ -434,8 +456,35 @@ body {
     display: flex;
   }
 }
+
+/* RTL sidebar */
+[dir="rtl"] .sb {
+  border-right: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[dir="rtl"] .sbLink {
+  padding: 12px 18px 12px 12px;
+}
+
+[dir="rtl"] .sbLink::before {
+  left: auto;
+  right: 10px;
+}
+
+@media (max-width: 900px) {
+  [dir="rtl"] .sb {
+    left: auto;
+    right: 0;
+    transform: translateX(110%);
+  }
+  [dir="rtl"] .sb.open {
+    transform: translateX(0);
+  }
+}
+
 /* =========================
-   ✅ SIDEBAR SECTION UI (Differentiated)
+   SIDEBAR SECTION UI
 ========================= */
 
 .sbBrandCard {
@@ -464,9 +513,9 @@ body {
   display: grid;
   place-items: center;
   font-size: 20px;
-  font-weight: 1000;
+  font-weight: 900;
   color: #fff;
-  background: linear-gradient(135deg, var(--a), var(--b));
+  background: linear-gradient(135deg, var(--accent), var(--blue));
   flex-shrink: 0;
 }
 
@@ -476,7 +525,7 @@ body {
 
 .sbBrandName {
   font-size: 15px;
-  font-weight: 1100;
+  font-weight: 800;
   color: rgba(255, 255, 255, 0.95);
   white-space: nowrap;
   overflow: hidden;
@@ -486,7 +535,7 @@ body {
 .sbBrandTag {
   margin-top: 2px;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   color: rgba(255, 255, 255, 0.65);
   white-space: nowrap;
   overflow: hidden;
@@ -497,7 +546,7 @@ body {
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1000;
+  font-weight: 700;
   color: rgba(255, 255, 255, 0.9);
   background: rgba(13, 110, 253, 0.16);
   border: 1px solid rgba(13, 110, 253, 0.22);
@@ -514,7 +563,7 @@ body {
 
 .sbSectionTitle {
   font-size: 12px;
-  font-weight: 1000;
+  font-weight: 700;
   color: rgba(255, 255, 255, 0.65);
   margin: 0 6px 10px;
   letter-spacing: 0.4px;
@@ -528,6 +577,51 @@ body {
   flex-direction: column;
   gap: 10px;
   padding-top: 12px;
+}
+
+/* Language Toggle in sidebar */
+.sbLangRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sbLangRow .sbLangLabel {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sbLangBtn {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sbLangBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.sbLangBtn.active {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  font-weight: 700;
 }
 
 /* Store Card */
@@ -563,7 +657,7 @@ body {
 
 .sbStoreName {
   font-size: 13px;
-  font-weight: 1100;
+  font-weight: 800;
   color: rgba(255, 255, 255, 0.95);
   white-space: nowrap;
   overflow: hidden;
@@ -573,7 +667,7 @@ body {
 .sbStoreId {
   margin-top: 2px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   color: rgba(255, 255, 255, 0.65);
 }
 
@@ -581,7 +675,7 @@ body {
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1000;
+  font-weight: 700;
   background: rgba(25, 135, 84, 0.16);
   border: 1px solid rgba(25, 135, 84, 0.22);
   color: #d1fae5;
@@ -604,7 +698,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -613,8 +707,20 @@ body {
   padding: 5px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 1100;
+  font-weight: 700;
   background: rgba(13, 202, 240, 0.16);
   border: 1px solid rgba(13, 202, 240, 0.22);
   color: #cffafe;
+}
+
+.sbHealthBadge.live {
+  background: rgba(25, 135, 84, 0.16);
+  border-color: rgba(25, 135, 84, 0.22);
+  color: #d1fae5;
+}
+
+.sbHealthBadge.down {
+  background: rgba(171, 46, 60, 0.16);
+  border-color: rgba(171, 46, 60, 0.22);
+  color: #fecaca;
 }

@@ -83,17 +83,26 @@ export async function dispatchGa4Event(req, event, rowid) {
       payload
     });
 
+    if (!resp.ok) {
+      await updateEventStatus(req, rowid, "failed", {
+        platform: "ga4",
+        http_status: resp.status,
+        error: `GA4 HTTP ${resp.status}`,
+        response: resp.data,
+        bump_retry: true
+      });
+      return;
+    }
+
     await updateEventStatus(req, rowid, "sent", {
       platform: "ga4",
-      http_status: resp?.status,
-      response: resp?.data
+      http_status: resp.status,
+      response: resp.data
     });
   } catch (err) {
     await updateEventStatus(req, rowid, "failed", {
       platform: "ga4",
-      http_status: err?.http_status,
       error: err?.message || "GA4 dispatch failed",
-      response: err?.response_body,
       bump_retry: true
     });
   }

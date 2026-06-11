@@ -10,6 +10,7 @@ import {
 } from "../datastore/stores.repo.js";
 
 import { dispatchGa4Event } from "../pipeline/ga4.dispatcher.js";
+import { dispatchEvent } from "../pipeline/dispatcher.js";
 
 /**
  * Salla can send signature in different ways:
@@ -119,8 +120,14 @@ export async function handleSallaWebhook(req, res) {
     // 6) Save + async dispatch
     const saved = await saveEvent(req, event);
 
+    // GA4 via ga4_settings (existing flow — unchanged)
     dispatchGa4Event(req, event, saved.ROWID).catch((err) => {
       console.error("GA4 dispatch failed:", err?.message || err);
+    });
+
+    // Meta / TikTok / Snap via platform_connections (new flow)
+    dispatchEvent(req, event, saved.ROWID).catch((err) => {
+      console.error("Multi-platform dispatch failed:", err?.message || err);
     });
 
     return res.json({ received: true });
