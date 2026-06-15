@@ -16,6 +16,95 @@ function safeStringify(value) {
   }
 }
 
+function safeParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+// Max characters we let the `payload` column hold. The Catalyst column has a
+// hard limit (10000 by default) — if a stringified payload exceeds it, the DB
+// truncates it into INVALID JSON, which then renders as "{}" with no value in
+// the UI. Default to just under the current column; raise EVENT_PAYLOAD_MAX_CHARS
+// after enlarging the column to store payloads in full.
+const PAYLOAD_MAX = Number(process.env.EVENT_PAYLOAD_MAX_CHARS || 9500);
+
+// A compact but VALID-JSON view of an order payload that keeps everything our
+// dispatchers (GA4/Meta/TikTok/Snap) and the UI use — id, amounts, currency,
+// items, customer, store — and drops only bulky shipping/branch/bank detail.
+function essentialPayload(b) {
+  const d = (b && typeof b === "object" && b.data) || {};
+  const items = Array.isArray(d.items)
+    ? d.items.map((i) => ({
+        id: i?.id,
+        name: i?.name,
+        sku: i?.sku,
+        product_sku_id: i?.product_sku_id,
+        quantity: i?.quantity,
+        currency: i?.currency,
+        amounts: i?.amounts,
+        mpn: i?.mpn,
+        gtin: i?.gtin
+      }))
+    : undefined;
+  const c = d.customer || null;
+  const s = d.store || null;
+  return {
+    event: b?.event ?? null,
+    merchant: b?.merchant ?? null,
+    created_at: b?.created_at ?? null,
+    _truncated: true,
+    data: {
+      id: d.id ?? d.order_id ?? null,
+      order_id: d.order_id ?? null,
+      reference_id: d.reference_id ?? null,
+      date: d.date ?? null,
+      currency: d.currency ?? null,
+      amounts: d.amounts ?? null,
+      payment_method: d.payment_method ?? null,
+      status: d.status ?? null,
+      items,
+      customer: c
+        ? {
+            id: c.id,
+            full_name: c.full_name,
+            first_name: c.first_name,
+            last_name: c.last_name,
+            email: c.email,
+            mobile: c.mobile,
+            mobile_code: c.mobile_code,
+            country: c.country,
+            city: c.city
+          }
+        : null,
+      store: s ? { id: s.id, store_id: s.store_id, name: s.name, username: s.username } : null
+    }
+  };
+}
+
+// Always returns VALID JSON that fits within PAYLOAD_MAX. Stores the full
+// payload when it fits; otherwise a trimmed-but-valid subset (never a truncated,
+// unparseable string). Live dispatch uses the full in-memory payload, so nothing
+// downstream loses data in real time — this only governs the stored copy.
+function fitPayload(value) {
+  const full = safeStringify(value);
+  if (full.length <= PAYLOAD_MAX) return full;
+
+  const obj = typeof value === "string" ? safeParse(value) : value;
+  let out = safeStringify(essentialPayload(obj || {}));
+  if (out.length <= PAYLOAD_MAX) return out;
+
+  // Last resort for an enormous item list: drop items but keep order totals.
+  const trimmed = essentialPayload(obj || {});
+  if (trimmed.data) delete trimmed.data.items;
+  out = safeStringify(trimmed);
+  return out.length <= PAYLOAD_MAX
+    ? out
+    : safeStringify({ event: obj?.event ?? null, merchant: obj?.merchant ?? null, _truncated: true });
+}
+
 // ✅ Catalyst CREATEDTIME comparisons work best with: "YYYY-MM-DD HH:mm:ss" (UTC)
 function toCatalystDateTimeUTC(date) {
   const d = date instanceof Date ? date : new Date(date);
@@ -57,7 +146,7 @@ export async function saveEvent(req, event) {
     external_id: event.external_id ? String(event.external_id) : null,
     source: event.source ? String(event.source) : "salla",
     type: String(event.type),
-    payload: safeStringify(event.payload),
+    payload: fitPayload(event.payload),
     status: event.status || "pending",
     retries: Number.isFinite(event.retries) ? event.retries : 0,
     last_attempt_at: event.last_attempt_at || null
