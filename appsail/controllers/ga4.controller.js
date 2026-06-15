@@ -115,6 +115,11 @@ export async function retryGa4ByRowId(req, res) {
     const row = await getEventByRowId(req, rowid);
     if (!row) return res.status(404).json({ ok: false, error: "Event not found" });
 
+    // Tenant isolation: only retry events that belong to the caller's store.
+    if (req.store_id && String(row.store_id) !== String(req.store_id)) {
+      return res.status(403).json({ ok: false, error: "Forbidden" });
+    }
+
     // mark retry attempt (bump retries deterministically)
     await updateEventStatus(req, row.ROWID, "pending", {
       platform: "ga4",

@@ -7,8 +7,12 @@ import {
   getConnectionHealth,
   getDispatchLogs
 } from "../controllers/connections.controller.js";
+import { requireAuth } from "../middlewares/auth.middleware.js";
 
 const router = Router();
+
+// All platform-connection endpoints are per-merchant.
+router.use(requireAuth);
 
 router.get("/", listConnections);
 router.post("/", saveConnection);

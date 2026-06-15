@@ -2,7 +2,7 @@
 
 import { upsertGa4Settings } from "../datastore/ga4.repo.js";
 import { getEventStats, listEventsCursor } from "../datastore/events.repo.js";
-import { listStores, updateStoreName } from "../datastore/stores.repo.js";
+import { getStore, updateStoreName } from "../datastore/stores.repo.js";
 import { getDispatchStatsForStore } from "../datastore/dispatch.repo.js";
 import { decrypt } from "../security/encryption.js";
 import { fetchStoreProfile } from "../services/salla.service.js";
@@ -88,18 +88,20 @@ export async function getEvents(req, res) {
 
 /**
  * GET /platforms/stores
- * Web-client: populate store dropdown (latest 50).
- * Strips sensitive fields before returning.
+ * Returns ONLY the authenticated merchant's store (req.store_id), so no merchant
+ * can see another's. Strips sensitive fields.
  */
 export async function getStores(req, res) {
   try {
-    const rows = await listStores(req, { limit: 50 });
-    const safe = rows.map(({ access_token_enc, ROWID, ...rest }) => rest);
-    return res.json({ ok: true, data: safe });
+    const store = await getStore(req, req.store_id);
+    if (!store) return res.json({ ok: true, data: [] });
+
+    const { access_token_enc, refresh_token_enc, ROWID, ...safe } = store;
+    return res.json({ ok: true, data: [safe] });
   } catch (err) {
     return res.status(500).json({
       ok: false,
-      error: err?.message || "Failed to list stores"
+      error: err?.message || "Failed to load store"
     });
   }
 }
@@ -126,38 +128,33 @@ export async function setStoreName(req, res) {
 
 /**
  * POST /platforms/stores/sync
- * For each store with a null store_name, decrypts its token and calls
- * the Salla API to fetch and save the real store name.
+ * Refresh the authenticated merchant's store name from the Salla API (source of
+ * truth). Scoped to req.store_id only.
  */
 export async function syncStoreNames(req, res) {
   try {
-    const rows = await listStores(req, { limit: 50 });
-    const results = [];
+    const store = await getStore(req, req.store_id);
+    if (!store) return res.json({ ok: true, data: [] });
 
-    for (const row of rows) {
-      // The Salla API is the source of truth — refresh even if a name already
-      // exists, so manual/stale values get replaced by the real store name.
-      if (!row.access_token_enc || row.access_token_enc === "__pending_authorize__") {
-        results.push({ store_id: row.store_id, status: "no_token", name: row.store_name || null });
-        continue;
-      }
-
-      try {
-        const token = decrypt(row.access_token_enc);
-        const profile = await fetchStoreProfile(token);
-
-        if (profile?.name) {
-          await updateStoreName(req, row.store_id, profile.name);
-          results.push({ store_id: row.store_id, status: "updated", name: profile.name });
-        } else {
-          results.push({ store_id: row.store_id, status: "no_name_returned" });
-        }
-      } catch (err) {
-        results.push({ store_id: row.store_id, status: "error", error: err?.message });
-      }
+    if (!store.access_token_enc || store.access_token_enc === "__pending_authorize__") {
+      return res.json({
+        ok: true,
+        data: [{ store_id: req.store_id, status: "no_token", name: store.store_name || null }]
+      });
     }
 
-    return res.json({ ok: true, data: results });
+    try {
+      const token = decrypt(store.access_token_enc);
+      const profile = await fetchStoreProfile(token);
+
+      if (profile?.name) {
+        await updateStoreName(req, req.store_id, profile.name);
+        return res.json({ ok: true, data: [{ store_id: req.store_id, status: "updated", name: profile.name }] });
+      }
+      return res.json({ ok: true, data: [{ store_id: req.store_id, status: "no_name_returned" }] });
+    } catch (err) {
+      return res.json({ ok: true, data: [{ store_id: req.store_id, status: "error", error: err?.message }] });
+    }
   } catch (err) {
     return res.status(500).json({ ok: false, error: err?.message || "Sync failed" });
   }
