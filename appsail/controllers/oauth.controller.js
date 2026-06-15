@@ -36,7 +36,7 @@ export async function oauthCallback(req, res) {
 
     if (!store_id) {
       console.error("OAuth callback: could not resolve store_id from Salla");
-      return res.redirect(`${dashboardUrl}?oauth=failed`);
+      return res.redirect(`${dashboardUrl}?oauth=failed&reason=no_store_id`);
     }
 
     // 3) Persist tokens + the real store name (store_name omitted if unknown so
@@ -62,6 +62,9 @@ export async function oauthCallback(req, res) {
     );
   } catch (err) {
     console.error("OAuth error:", err?.response?.data || err?.message || err);
-    return res.redirect(`${dashboardUrl}?oauth=failed`);
+    const reason = encodeURIComponent(
+      String(err?.reason || err?.message || "unknown").slice(0, 200)
+    );
+    return res.redirect(`${dashboardUrl}?oauth=failed&reason=${reason}`);
   }
 }

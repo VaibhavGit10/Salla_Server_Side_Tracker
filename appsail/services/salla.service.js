@@ -48,21 +48,23 @@ export async function exchangeCodeForToken(code) {
   if (!clientSecret) throw new Error("SALLA_CLIENT_SECRET missing");
 
   try {
-    // Salla expects a POST to token endpoint after authorization_code flow :contentReference[oaicite:3]{index=3}
-    const response = await axios.post(
-      tokenUrl,
-      {
-        grant_type: "authorization_code",
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: redirectUri
+    // OAuth2 token endpoints (Salla uses Ory) require x-www-form-urlencoded,
+    // NOT JSON. Sending JSON is rejected with invalid_request.
+    const form = new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: redirectUri
+    });
+
+    const response = await axios.post(tokenUrl, form.toString(), {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json"
       },
-      {
-        headers: { "Content-Type": "application/json" },
-        timeout: 15000
-      }
-    );
+      timeout: 15000
+    });
 
     const data = response.data || {};
 
@@ -75,13 +77,22 @@ export async function exchangeCodeForToken(code) {
     // Never log secrets. Log safe error only.
     const status = err?.response?.status;
     const body = err?.response?.data;
+    const detail =
+      body?.error_description ||
+      body?.error ||
+      (typeof body === "string" ? body.slice(0, 200) : null) ||
+      err?.message ||
+      "unknown";
 
     console.error("Salla token exchange failed", {
       status,
       body: typeof body === "string" ? body.slice(0, 300) : body
     });
 
-    throw new Error(`Salla token exchange failed${status ? ` (HTTP ${status})` : ""}`);
+    const e = new Error(`token_exchange_failed${status ? `_${status}` : ""}: ${detail}`);
+    e.reason = String(detail);
+    e.status = status;
+    throw e;
   }
 }
 
@@ -158,19 +169,20 @@ export async function refreshAccessToken(refreshToken) {
   if (!clientSecret) throw new Error("SALLA_CLIENT_SECRET missing");
 
   try {
-    const response = await axios.post(
-      tokenUrl,
-      {
-        grant_type: "refresh_token",
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken
+    const form = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken
+    });
+
+    const response = await axios.post(tokenUrl, form.toString(), {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json"
       },
-      {
-        headers: { "Content-Type": "application/json" },
-        timeout: 15000
-      }
-    );
+      timeout: 15000
+    });
 
     const data = response.data || {};
     if (!data.access_token) {
