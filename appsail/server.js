@@ -40,24 +40,35 @@ export function startServer() {
    * We reflect the request Origin (never a bare "*") and emit each header
    * exactly once, so there are no duplicate-header rejections.
    */
-  const DEFAULT_ALLOWED_ORIGINS = [
-    "https://marketone.dsv-ksa.com" // custom production domain (Salla App URL)
+  // Custom production domains MAPPED to this project in the Catalyst Console
+  // (e.g. the Salla App URL). The gateway injects CORS (ACAO + credentials) for
+  // these too — exactly like it does for its own *.catalystserverless.* domains —
+  // but ONLY in the environment the domain is mapped to (marketone → production).
+  // So the app must treat them as gateway-managed and NOT set ACAO itself, or the
+  // browser gets two Access-Control-Allow-Origin headers and fails the request.
+  const CATALYST_MAPPED_DOMAINS = [
+    "https://marketone.dsv-ksa.com",
+    "https://www.marketone.dsv-ksa.com"
   ];
 
   const extraOrigins = [
-    ...DEFAULT_ALLOWED_ORIGINS,
+    ...CATALYST_MAPPED_DOMAINS,
     ...String(process.env.CORS_ALLOWED_ORIGINS || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
   ];
 
-  // Origins the Catalyst gateway already serves CORS for (its own domains).
-  // For these we let the gateway own Access-Control-Allow-Origin and must not
-  // duplicate it — see the note above.
+  // Origins the Catalyst gateway already emits Access-Control-Allow-Origin for:
+  // its own *.catalystserverless.* / *.catalystappsail.in domains AND the custom
+  // domains mapped to the project above. For ALL of these we let the gateway own
+  // ACAO and must not duplicate it — see the note above.
   const isCatalystGatewayOrigin = (origin) =>
     /^https:\/\/([a-z0-9-]+\.)*catalystserverless\.(in|com)$/i.test(origin) ||
     /^https:\/\/([a-z0-9-]+\.)*catalystappsail\.in$/i.test(origin);
+
+  const isGatewayManagedOrigin = (origin) =>
+    isCatalystGatewayOrigin(origin) || CATALYST_MAPPED_DOMAINS.includes(origin);
 
   const isAllowedOrigin = (origin) => {
     if (!origin) return false;
@@ -71,9 +82,10 @@ export function startServer() {
     const origin = req.headers.origin || "";
 
     if (isAllowedOrigin(origin)) {
-      // Emit Access-Control-Allow-Origin ourselves ONLY when the gateway won't,
-      // otherwise the browser gets two values and fails the request.
-      if (!isCatalystGatewayOrigin(origin)) {
+      // Emit Access-Control-Allow-Origin ourselves ONLY when the gateway won't
+      // (i.e. localhost / unmapped origins). For gateway-managed origins the
+      // gateway already sets it; setting it again = two values = CORS failure.
+      if (!isGatewayManagedOrigin(origin)) {
         res.setHeader("Access-Control-Allow-Origin", origin);
         res.setHeader("Vary", "Origin");
       }
