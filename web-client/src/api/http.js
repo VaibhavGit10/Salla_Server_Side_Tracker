@@ -16,15 +16,53 @@ async function parseJson(res) {
   return res.json().catch(() => null);
 }
 
-export async function apiGet(path) {
-  const res = await fetch(joinUrl(BASE_URL, path), {
-    method: "GET",
-    headers: { "Accept": "application/json" }
-  });
+// ── GET de-duplication + optional short-TTL cache ──────────────────────
+// Coalesces identical concurrent GETs into ONE network request, so multiple
+// components mounting together (e.g. Sidebar + the active page both loading
+// the store list) — and React StrictMode's double-invoke in dev — share a
+// single request instead of firing 2–4 of them. When `ttl` is provided, the
+// result is briefly cached so quick re-mounts / route changes don't refetch.
+// Plain JS, behaves identically in dev and prod (does not rely on StrictMode),
+// and leaves the per-environment BASE_URL resolution untouched.
+const _inflight = new Map(); // path -> in-flight Promise
+const _cache = new Map();    // path -> { value, expires }
 
-  const data = await parseJson(res);
-  if (!res.ok) throw new Error(data?.error || data?.message || "API error");
-  return data;
+/** Drop cached GET responses (all, or those whose path starts with `prefix`). */
+export function invalidate(prefix = "") {
+  for (const k of [..._cache.keys()]) if (k.startsWith(prefix)) _cache.delete(k);
+  for (const k of [..._inflight.keys()]) if (k.startsWith(prefix)) _inflight.delete(k);
+}
+
+export async function apiGet(path, { ttl = 0, dedupe = true } = {}) {
+  const key = path;
+
+  // 1) serve a still-fresh cached response
+  if (ttl > 0) {
+    const hit = _cache.get(key);
+    if (hit && hit.expires > Date.now()) return hit.value;
+  }
+
+  // 2) reuse an identical request already in flight
+  if (dedupe && _inflight.has(key)) return _inflight.get(key);
+
+  const req = (async () => {
+    const res = await fetch(joinUrl(BASE_URL, path), {
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    });
+    const data = await parseJson(res);
+    if (!res.ok) throw new Error(data?.error || data?.message || "API error");
+    if (ttl > 0) _cache.set(key, { value: data, expires: Date.now() + ttl });
+    return data;
+  })();
+
+  if (dedupe) {
+    _inflight.set(key, req);
+    // release the in-flight slot once settled so later calls fetch fresh
+    const release = () => { if (_inflight.get(key) === req) _inflight.delete(key); };
+    req.then(release, release);
+  }
+  return req;
 }
 
 export async function apiPost(path, body) {
@@ -41,6 +79,7 @@ export async function apiPost(path, body) {
     err.data = data;
     throw err;
   }
+  invalidate(); // a mutation may have changed server state — drop cached GETs
   return data;
 }
 
@@ -52,5 +91,6 @@ export async function apiDelete(path) {
 
   const data = await parseJson(res);
   if (!res.ok) throw new Error(data?.error || data?.message || "API error");
+  invalidate(); // a mutation may have changed server state — drop cached GETs
   return data;
 }

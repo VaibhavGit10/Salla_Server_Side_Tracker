@@ -14,28 +14,71 @@ export function startServer() {
   const app = express();
 
   /**
-   * ✅ CORS SAFE MODE (IMPORTANT)
-   * - In Catalyst hosted UI, Zoho gateway already adds CORS.
-   * - If AppSail also adds CORS => duplicate header => browser blocks.
+   * ✅ CORS
+   * The WebClient (static UI) and AppSail run on DIFFERENT Catalyst subdomains,
+   * and the browser calls AppSail by absolute URL, so AppSail must send CORS
+   * headers itself for trusted origins — not just localhost.
    *
-   * So:
-   * ✅ Add CORS headers ONLY for localhost dev
-   * ❌ Add NOTHING for catalystserverless hosted UI
+   * IMPORTANT: Catalyst's gateway (server: ZGS) ALREADY injects
+   * Access-Control-Allow-Origin (+ Access-Control-Allow-Credentials and a CSP)
+   * for requests from its OWN project domains — the hosted WebClient on
+   * *.catalystserverless.{in,com} and the *.catalystappsail.in subdomains. For
+   * those origins we must NOT also set ACAO, or the browser sees TWO
+   * Access-Control-Allow-Origin headers and rejects the response as a CORS
+   * error. (That is exactly why the hosted WebClient broke while the custom
+   * domain — which the gateway leaves untouched — kept working.) For every
+   * other trusted origin (localhost, custom domains) the gateway adds nothing,
+   * so AppSail is the sole source of CORS headers.
+   *
+   * Trusted origins:
+   *   - http://localhost | 127.0.0.1 (any port)         → local dev
+   *   - https://*.catalystserverless.in | .com          → Catalyst hosted UI (prod + development)
+   *   - https://*.catalystappsail.in                    → AppSail subdomains (self / dev↔prod)
+   *   - the custom production domain(s) below           → e.g. https://marketone.dsv-ksa.com
+   *   - anything listed in CORS_ALLOWED_ORIGINS (CSV)    → extra custom domains
+   *
+   * We reflect the request Origin (never a bare "*") and emit each header
+   * exactly once, so there are no duplicate-header rejections.
    */
+  const DEFAULT_ALLOWED_ORIGINS = [
+    "https://marketone.dsv-ksa.com" // custom production domain (Salla App URL)
+  ];
+
+  const extraOrigins = [
+    ...DEFAULT_ALLOWED_ORIGINS,
+    ...String(process.env.CORS_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  ];
+
+  // Origins the Catalyst gateway already serves CORS for (its own domains).
+  // For these we let the gateway own Access-Control-Allow-Origin and must not
+  // duplicate it — see the note above.
+  const isCatalystGatewayOrigin = (origin) =>
+    /^https:\/\/([a-z0-9-]+\.)*catalystserverless\.(in|com)$/i.test(origin) ||
+    /^https:\/\/([a-z0-9-]+\.)*catalystappsail\.in$/i.test(origin);
+
+  const isAllowedOrigin = (origin) => {
+    if (!origin) return false;
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
+    if (isCatalystGatewayOrigin(origin)) return true;
+    if (extraOrigins.includes(origin)) return true;
+    return false;
+  };
+
   app.use((req, res, next) => {
     const origin = req.headers.origin || "";
 
-    const isLocalhost =
-      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-
-    // CORS rule:
-    //  - Localhost dev: AppSail adds its own CORS (no gateway in the path).
-    //  - Catalyst-hosted UI: gateway already adds CORS; if AppSail also adds
-    //    them, the response gets DUPLICATE Access-Control-Allow-Origin headers
-    //    and the browser rejects it → "Failed to fetch".
-    if (isLocalhost) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
+    if (isAllowedOrigin(origin)) {
+      // Emit Access-Control-Allow-Origin ourselves ONLY when the gateway won't,
+      // otherwise the browser gets two values and fails the request.
+      if (!isCatalystGatewayOrigin(origin)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+      }
+      // The gateway does NOT set these, so we always provide them — required for
+      // the preflight on the JSON POST endpoints (Content-Type: application/json).
       res.setHeader(
         "Access-Control-Allow-Methods",
         "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -44,6 +87,7 @@ export function startServer() {
         "Access-Control-Allow-Headers",
         "Content-Type, Authorization"
       );
+      res.setHeader("Access-Control-Max-Age", "86400");
     }
 
     if (req.method === "OPTIONS") return res.sendStatus(204);

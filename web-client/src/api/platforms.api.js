@@ -18,7 +18,9 @@ export async function fetchDashboardSummary(storeId, hours = 24) {
  * -> GET /platforms/stores
  */
 export function fetchStores() {
-  return apiGet("/platforms/stores");
+  // store list is fairly static — cache 30s so Sidebar + pages + route
+  // changes reuse one response instead of refetching on every mount
+  return apiGet("/platforms/stores", { ttl: 30000 });
 }
 
 /**
