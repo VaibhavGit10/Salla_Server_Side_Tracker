@@ -1,10 +1,24 @@
 // web-client/src/api/http.js
+import { getSessionToken } from "../auth/session";
+import { inEmbeddedMode, refreshEmbeddedAuth } from "../auth/embedded";
 
 function joinUrl(base, path) {
   const b = String(base || "").replace(/\/+$/, "");
   const p = String(path || "").replace(/^\/+/, "");
   if (!b) return `/${p}`;
   return `${b}/${p}`;
+}
+
+// Attach the embedded-session bearer token (when present) to every request, so
+// the backend can derive the merchant server-side instead of trusting a client id.
+function withAuth(headers = {}) {
+  const token = getSessionToken();
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : { ...headers };
+}
+
+// On an expired/invalid session, ask Salla to reload the iframe with a fresh token.
+function onUnauthorized(res) {
+  if (res && res.status === 401 && inEmbeddedMode()) refreshEmbeddedAuth();
 }
 
 const BASE_URL =
@@ -48,10 +62,13 @@ export async function apiGet(path, { ttl = 0, dedupe = true } = {}) {
   const req = (async () => {
     const res = await fetch(joinUrl(BASE_URL, path), {
       method: "GET",
-      headers: { "Accept": "application/json" }
+      headers: withAuth({ "Accept": "application/json" })
     });
     const data = await parseJson(res);
-    if (!res.ok) throw new Error(data?.error || data?.message || "API error");
+    if (!res.ok) {
+      onUnauthorized(res);
+      throw new Error(data?.error || data?.message || "API error");
+    }
     if (ttl > 0) _cache.set(key, { value: data, expires: Date.now() + ttl });
     return data;
   })();
@@ -68,12 +85,13 @@ export async function apiGet(path, { ttl = 0, dedupe = true } = {}) {
 export async function apiPost(path, body) {
   const res = await fetch(joinUrl(BASE_URL, path), {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    headers: withAuth({ "Content-Type": "application/json", "Accept": "application/json" }),
     body: JSON.stringify(body || {})
   });
 
   const data = await parseJson(res);
   if (!res.ok) {
+    onUnauthorized(res);
     const err = new Error(data?.error || data?.message || "API error");
     err.status = res.status;
     err.data = data;
@@ -86,11 +104,14 @@ export async function apiPost(path, body) {
 export async function apiDelete(path) {
   const res = await fetch(joinUrl(BASE_URL, path), {
     method: "DELETE",
-    headers: { "Accept": "application/json" }
+    headers: withAuth({ "Accept": "application/json" })
   });
 
   const data = await parseJson(res);
-  if (!res.ok) throw new Error(data?.error || data?.message || "API error");
+  if (!res.ok) {
+    onUnauthorized(res);
+    throw new Error(data?.error || data?.message || "API error");
+  }
   invalidate(); // a mutation may have changed server state — drop cached GETs
   return data;
 }
