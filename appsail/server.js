@@ -2,6 +2,7 @@ import express from "express";
 
 import healthRoutes from "./routes/health.routes.js";
 import oauthRoutes from "./routes/oauth.routes.js";
+import authRoutes from "./routes/auth.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
 import platformRoutes from "./routes/platform.routes.js";
 import ga4Routes from "./routes/ga4.routes.js";
@@ -115,6 +116,8 @@ export function startServer() {
   );
 
   app.use("/health", healthRoutes);
+  // Embedded-app session auth (POST /auth/embedded, GET /auth/me).
+  app.use("/auth", authRoutes);
   // Salla's OAuth redirect URI is /auth/callback; keep /oauth for back-compat.
   app.use("/auth", oauthRoutes);
   app.use("/oauth", oauthRoutes);

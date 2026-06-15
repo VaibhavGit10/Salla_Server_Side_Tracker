@@ -1,6 +1,48 @@
 import axios from "axios";
 
 const DEFAULT_TOKEN_URL = "https://accounts.salla.sa/oauth2/token";
+const INTROSPECT_URL = "https://api.salla.dev/exchange-authority/v1/introspect";
+
+/**
+ * Verify a Salla embedded-app session token via the Introspection API.
+ * The embedded SDK (embedded.auth.getToken()) hands the iframe a short-lived
+ * `em_tok_…`; we POST it here with our App ID in the S-Source header. Salla
+ * returns the verified { merchant_id, user_id, exp } — merchant_id is the
+ * trusted store id (the client cannot forge it).
+ *
+ * Returns { store_id, user_id, exp } or throws.
+ */
+export async function introspectEmbeddedToken(token) {
+  if (!token) throw new Error("Missing embedded token");
+
+  const appId = process.env.SALLA_APP_ID || "43262455";
+
+  const response = await axios.post(
+    INTROSPECT_URL,
+    { token },
+    {
+      headers: {
+        "S-Source": String(appId),
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      timeout: 10000
+    }
+  );
+
+  const body = response.data || {};
+  const d = body.data || {};
+
+  if (body.success === false || !d.merchant_id) {
+    throw new Error("Introspection returned no merchant_id");
+  }
+
+  return {
+    store_id: String(d.merchant_id),
+    user_id: d.user_id != null ? String(d.user_id) : null,
+    exp: d.exp || null
+  };
+}
 
 /**
  * Build redirect_uri exactly as registered in Salla Partner Portal.
