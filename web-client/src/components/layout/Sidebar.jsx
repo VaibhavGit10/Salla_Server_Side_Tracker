@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { NavLink } from "react-router-dom";
 import { LayoutDashboard, Link2, ScrollText, Globe, Layers } from "lucide-react";
-import { getStoreId } from "../../utils/store";
+import { getStoreId, reconcileStoreId } from "../../utils/store";
 import { useTranslation } from "../../utils/i18n";
 import { apiGet } from "../../api/http";
 import { fetchStores } from "../../api/platforms.api";
@@ -43,6 +43,10 @@ export default function Sidebar() {
           if (s?.store_id) map[s.store_id] = s;
         }
         setStoresMap(map);
+
+        // correct a stale/empty selection to a real authorized store
+        const resolved = reconcileStoreId(list);
+        if (resolved) setStoreIdLocal(resolved);
       })
       .catch(() => {});
   }, []);

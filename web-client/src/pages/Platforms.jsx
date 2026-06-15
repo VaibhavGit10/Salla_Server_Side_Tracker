@@ -3,7 +3,7 @@ import { Eye, EyeOff } from "lucide-react";
 import Container from "../components/layout/Container";
 import { validateGA4, fetchStores, saveGA4, fetchGA4 } from "../api/platforms.api";
 import { listConnections, saveConnection, removeConnection, testConnection } from "../api/connections.api";
-import { getStoreId, setStoreId } from "../utils/store";
+import { getStoreId, setStoreId, reconcileStoreId } from "../utils/store";
 import { useTranslation } from "../utils/i18n";
 import metaIcon from "../assets/metaIcon.webp";
 
@@ -66,19 +66,10 @@ export default function Platforms() {
         const rows = Array.isArray(resp?.data) ? resp.data : [];
         setStores(rows);
 
-        const current = getStoreId();
-
-        if (!current) {
-          const picked =
-            rows.find((s) => String(s.status || "").toLowerCase() === "active") || rows[0];
-
-          if (picked?.store_id) {
-            setStoreId(picked.store_id);
-            setActiveStoreId(String(picked.store_id));
-          }
-        } else {
-          setActiveStoreId(String(current));
-        }
+        // keep the current store only if it's actually authorized; otherwise
+        // fall back to a real store (prevents saving GA4 to a stale store id)
+        const resolved = reconcileStoreId(rows);
+        if (resolved) setActiveStoreId(String(resolved));
       })
       .catch(() => {})
       .finally(() => mounted && setStoresLoading(false));

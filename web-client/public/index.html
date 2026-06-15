@@ -13,13 +13,19 @@
          Each Catalyst env has its own AppSail subdomain. -->
     <script>
       (function () {
-        var host = window.location.hostname || "";
+        var host = (window.location.hostname || "").toLowerCase();
         var DEV_APPSAIL  = "https://appsail-50037240850.development.catalystappsail.in";
         var PROD_APPSAIL = "https://appsail-50037240850.catalystappsail.in";
 
+        // Custom production domains (e.g. the Salla App URL) must use the PROD
+        // AppSail backend. They are NOT *.catalystserverless.* hosts, so they
+        // would otherwise fall through to DEV below.
+        var PROD_HOSTS = ["marketone.dsv-ksa.com", "www.marketone.dsv-ksa.com"];
+
         var isProdHostedUI =
-          /\.catalystserverless\.(in|com)$/i.test(host) &&
-          !/\.development\./i.test(host);
+          PROD_HOSTS.indexOf(host) !== -1 ||
+          (/\.catalystserverless\.(in|com)$/i.test(host) &&
+            !/\.development\./i.test(host));
 
         window.__API_BASE__ = isProdHostedUI ? PROD_APPSAIL : DEV_APPSAIL;
       })();
