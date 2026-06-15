@@ -115,6 +115,8 @@ export function startServer() {
   );
 
   app.use("/health", healthRoutes);
+  // Salla's OAuth redirect URI is /auth/callback; keep /oauth for back-compat.
+  app.use("/auth", oauthRoutes);
   app.use("/oauth", oauthRoutes);
   app.use("/webhooks", webhookRoutes);
   app.use("/platforms", platformRoutes);

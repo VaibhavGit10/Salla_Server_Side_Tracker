@@ -1,54 +1,67 @@
-import { exchangeCodeForToken } from "../services/salla.service.js";
+import { exchangeCodeForToken, fetchStoreProfile } from "../services/salla.service.js";
 import { encrypt } from "../security/encryption.js";
 import { upsertStore } from "../datastore/stores.repo.js";
+import { toCatalystDateTime } from "../utils/datetime.js";
 
+/**
+ * Salla OAuth (Custom Mode) callback — GET /auth/callback (also /oauth/callback).
+ *
+ * The authorization-code redirect carries `code` + `state` + `scope` but NO
+ * store_id, so after exchanging the code we resolve the store id AND the real
+ * store name from the Salla API, then persist the tokens + name.
+ */
 export async function oauthCallback(req, res) {
+  // DASHBOARD_URL = the React UI to land on after OAuth. APP_BASE_URL is this
+  // AppSail itself; only used as a last-resort fallback.
+  const dashboardUrl = process.env.DASHBOARD_URL || process.env.APP_BASE_URL || "/";
+
   try {
-    /**
-     * MVP NOTE (Easy Mode):
-     * Tokens come from webhook event: app.store.authorize.
-     * Keep this callback only for compatibility / future Custom Mode.
-     */
     const code = req.query?.code;
-    const store_id = String(req.query?.store_id || req.query?.merchant || "");
-
-    // DASHBOARD_URL = where to redirect merchants after OAuth (the React UI).
-    // APP_BASE_URL  = this AppSail's own URL (used to derive the OAuth callback).
-    // Fall back to APP_BASE_URL for backward compatibility.
-    const dashboardUrl = process.env.DASHBOARD_URL || process.env.APP_BASE_URL || "/";
-
-    // If no code, don’t fail startup or flow — just redirect.
     if (!code) {
       return res.redirect(`${dashboardUrl}?oauth=skipped`);
     }
 
-    // Custom Mode fallback: exchange code for token
+    // 1) Exchange the authorization code for tokens
     const tokenResponse = await exchangeCodeForToken(code);
-
-    // Only upsert if we have store_id + access_token
-    if (store_id && tokenResponse?.access_token) {
-      await upsertStore(req, {
-        store_id,
-        status: "active",
-        access_token_enc: encrypt(tokenResponse.access_token),
-        refresh_token_enc: tokenResponse.refresh_token
-          ? encrypt(tokenResponse.refresh_token)
-          : null,
-        scope: tokenResponse.scope || null,
-        token_expires_at: tokenResponse.expires_in
-          ? new Date(Date.now() + Number(tokenResponse.expires_in) * 1000).toISOString()
-          : null,
-        installed_at: new Date().toISOString()
-      });
+    if (!tokenResponse?.access_token) {
+      return res.redirect(`${dashboardUrl}?oauth=failed`);
     }
 
-    return res.redirect(`${dashboardUrl}?oauth=success`);
+    // 2) Resolve store id + real name from the Salla API (the callback has no
+    //    store_id of its own). store/info returns { id, name, ... }.
+    const profile = await fetchStoreProfile(tokenResponse.access_token);
+    const store_id = String(
+      req.query?.store_id || req.query?.merchant || profile?.id || ""
+    ).trim();
+
+    if (!store_id) {
+      console.error("OAuth callback: could not resolve store_id from Salla");
+      return res.redirect(`${dashboardUrl}?oauth=failed`);
+    }
+
+    // 3) Persist tokens + the real store name (store_name omitted if unknown so
+    //    we never overwrite an existing name with null).
+    const token_expires_at = tokenResponse.expires_in
+      ? toCatalystDateTime(new Date(Date.now() + Number(tokenResponse.expires_in) * 1000))
+      : null;
+
+    await upsertStore(req, {
+      store_id,
+      status: "active",
+      access_token_enc: encrypt(tokenResponse.access_token),
+      refresh_token_enc: tokenResponse.refresh_token
+        ? encrypt(tokenResponse.refresh_token)
+        : null,
+      scope: tokenResponse.scope || null,
+      token_expires_at,
+      store_name: profile?.name || undefined
+    });
+
+    return res.redirect(
+      `${dashboardUrl}?oauth=success&store_id=${encodeURIComponent(store_id)}`
+    );
   } catch (err) {
     console.error("OAuth error:", err?.response?.data || err?.message || err);
-    // DASHBOARD_URL = where to redirect merchants after OAuth (the React UI).
-    // APP_BASE_URL  = this AppSail's own URL (used to derive the OAuth callback).
-    // Fall back to APP_BASE_URL for backward compatibility.
-    const dashboardUrl = process.env.DASHBOARD_URL || process.env.APP_BASE_URL || "/";
     return res.redirect(`${dashboardUrl}?oauth=failed`);
   }
 }

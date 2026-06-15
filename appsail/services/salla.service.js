@@ -11,8 +11,8 @@ function getRedirectUri() {
   if (!base) {
     throw new Error("APP_BASE_URL is missing. Set it in AppSail env vars.");
   }
-  // Must match what you configured in Salla portal
-  return `${base.replace(/\/$/, "")}/oauth/callback`;
+  // Must match the redirect URI registered in the Salla Partner Portal.
+  return `${base.replace(/\/$/, "")}/auth/callback`;
 }
 
 function isMockAuthEnabled() {
@@ -121,6 +121,7 @@ export async function fetchStoreProfile(accessToken) {
       const name = pickName(d);
       if (name) {
         return {
+          id: d.id ?? d.store_id ?? d.merchant ?? null,
           name,
           domain: d.domain || d.store_domain || null,
           email: d.email || null
