@@ -15,7 +15,7 @@ const INTROSPECT_URL = "https://api.salla.dev/exchange-authority/v1/introspect";
 export async function introspectEmbeddedToken(token) {
   if (!token) throw new Error("Missing embedded token");
 
-  const appId = process.env.SALLA_APP_ID || "43262455";
+  const appId = process.env.SALLA_APP_ID || "1297100528";
 
   const response = await axios.post(
     INTROSPECT_URL,

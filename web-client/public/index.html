@@ -27,7 +27,14 @@
           (/\.catalystserverless\.(in|com)$/i.test(host) &&
             !/\.development\./i.test(host));
 
-        window.__API_BASE__ = isProdHostedUI ? PROD_APPSAIL : DEV_APPSAIL;
+        // When the SPA is served BY AppSail itself (the embedded-app host), the
+        // API lives on the same origin — call it relative, no CORS. This makes
+        // dev-AppSail → dev-API and prod-AppSail → prod-API automatically.
+        if (/\.catalystappsail\.in$/i.test(host)) {
+          window.__API_BASE__ = window.location.origin;
+        } else {
+          window.__API_BASE__ = isProdHostedUI ? PROD_APPSAIL : DEV_APPSAIL;
+        }
       })();
     </script>
 

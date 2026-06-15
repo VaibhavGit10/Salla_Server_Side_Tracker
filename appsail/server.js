@@ -1,4 +1,6 @@
 import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import healthRoutes from "./routes/health.routes.js";
 import oauthRoutes from "./routes/oauth.routes.js";
@@ -107,6 +109,19 @@ export function startServer() {
     next();
   });
 
+  // Allow the Salla dashboard to embed our pages in an iframe. We set CSP
+  // frame-ancestors ourselves (the gateway only sends the deprecated, Chrome-
+  // ignored X-Frame-Options) — and CSP frame-ancestors takes precedence over
+  // X-Frame-Options in modern browsers. This lets us host the embedded UI on
+  // Catalyst/AppSail instead of an external host.
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy",
+      "frame-ancestors 'self' https://s.salla.sa https://salla.sa"
+    );
+    next();
+  });
+
   // ✅ JSON parser with raw body capture (keep)
   app.use(
     express.json({
@@ -126,6 +141,15 @@ export function startServer() {
   app.use("/platforms/ga4", ga4Routes);
   app.use("/api/connections", connectionsRoutes);
   app.use("/jobs", jobsRoutes);
+
+  // Serve the embedded SPA from AppSail itself, so the embedded-app iframe loads
+  // from a Catalyst origin we control headers on (CSP frame-ancestors above lets
+  // Salla frame it). The build is copied into appsail/web at deploy time.
+  const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "web");
+  app.use("/app", express.static(WEB_DIR));
+  app.get(/^\/app(\/.*)?$/, (_req, res) => {
+    res.sendFile(path.join(WEB_DIR, "index.html"));
+  });
 
   app.use((err, _req, res, _next) => {
     console.error(err);
