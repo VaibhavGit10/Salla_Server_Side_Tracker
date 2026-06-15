@@ -1,6 +1,7 @@
 import { getDatastore, getZCQL } from "./client.js";
-import { encrypt } from "../security/encryption.js";
+import { encrypt, decrypt } from "../security/encryption.js";
 import { toCatalystDateTime, unixSecondsToCatalystDateTime } from "../utils/datetime.js";
+import { fetchStoreProfile } from "../services/salla.service.js";
 
 const TABLE = "stores";
 
@@ -21,17 +22,6 @@ function extractStoreIdFromBody(body) {
 
   return String(id).trim();
 }
-
-/** Extract store display name from Salla webhook payload */
-function extractStoreNameFromBody(body) {
-  const name =
-    body?.data?.store?.name ??
-    body?.data?.merchant?.name ??
-    body?.store?.name ??
-    null;
-  return name ? String(name).trim().slice(0, 200) : null;
-}
-
 
 export async function getStore(req, store_id) {
   if (!store_id) return null;
@@ -108,8 +98,9 @@ export async function upsertStoreAuth(req, body) {
   // ✅ FIX: unix seconds -> "YYYY-MM-DD HH:mm:ss"
   const token_expires_at = d.expires ? unixSecondsToCatalystDateTime(d.expires) : null;
 
-  const store_name = extractStoreNameFromBody(body);
-
+  // store_name is intentionally NOT taken from the webhook payload — it is the
+  // localized storefront name. The real name is fetched from the Salla API via
+  // refreshStoreNameFromApi() after the token is stored (see webhook controller).
   return await upsertStore(req, {
     store_id,
     status: "active",
@@ -117,7 +108,6 @@ export async function upsertStoreAuth(req, body) {
     refresh_token_enc: d.refresh_token ? encrypt(d.refresh_token) : null,
     scope,
     token_expires_at,
-    store_name,
     installed_at: toCatalystDateTime(new Date())
   });
 }
@@ -139,25 +129,21 @@ export async function markStoreInstalled(req, bodyOrStoreId) {
 
   if (!store_id) throw new Error("Missing store_id");
 
-  const store_name = isBody ? extractStoreNameFromBody(bodyOrStoreId) : null;
-
   const existing = await getStore(req, store_id);
   const table = getDatastore(req).table(TABLE);
 
   if (existing?.ROWID) {
-    const patch = {
+    await table.updateRow({
       ROWID: existing.ROWID,
       status: "active",
       updated_at: toCatalystDateTime(new Date())
-    };
-    if (store_name) patch.store_name = store_name;
-    await table.updateRow(patch);
+    });
     return true;
   }
 
   // If installed arrives before authorize, create minimal row.
   // access_token_enc is mandatory → keep placeholder.
-  const newRow = {
+  await table.insertRow({
     store_id,
     status: "active",
     access_token_enc: "__pending_authorize__",
@@ -166,9 +152,7 @@ export async function markStoreInstalled(req, bodyOrStoreId) {
     token_expires_at: null,
     updated_at: toCatalystDateTime(new Date()),
     installed_at: toCatalystDateTime(new Date())
-  };
-  if (store_name) newRow.store_name = store_name;
-  await table.insertRow(newRow);
+  });
 
   return true;
 }
@@ -219,4 +203,37 @@ export async function updateStoreName(req, store_id, name) {
     store_name: String(name).trim().slice(0, 200),
     updated_at: toCatalystDateTime(new Date())
   });
+}
+
+/**
+ * Fetch the store's REAL name from the Salla API (using its stored OAuth token)
+ * and persist it. This is the SINGLE source of truth for store_name — names are
+ * never derived from webhook payloads. No-op when the store has no usable token.
+ * Returns the resolved name, or null.
+ */
+export async function refreshStoreNameFromApi(req, store_id) {
+  if (!store_id) return null;
+
+  const row = await getStore(req, store_id);
+  if (!row?.ROWID) return null;
+  if (!row.access_token_enc || row.access_token_enc === "__pending_authorize__") return null;
+
+  let token;
+  try {
+    token = decrypt(row.access_token_enc);
+  } catch {
+    return null;
+  }
+
+  const profile = await fetchStoreProfile(token);
+  if (!profile?.name) return null;
+
+  const table = getDatastore(req).table(TABLE);
+  await table.updateRow({
+    ROWID: row.ROWID,
+    store_name: String(profile.name).trim().slice(0, 200),
+    updated_at: toCatalystDateTime(new Date())
+  });
+
+  return profile.name;
 }

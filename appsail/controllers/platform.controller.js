@@ -135,13 +135,10 @@ export async function syncStoreNames(req, res) {
     const results = [];
 
     for (const row of rows) {
-      if (row.store_name) {
-        results.push({ store_id: row.store_id, status: "skipped", name: row.store_name });
-        continue;
-      }
-
+      // The Salla API is the source of truth — refresh even if a name already
+      // exists, so manual/stale values get replaced by the real store name.
       if (!row.access_token_enc || row.access_token_enc === "__pending_authorize__") {
-        results.push({ store_id: row.store_id, status: "no_token" });
+        results.push({ store_id: row.store_id, status: "no_token", name: row.store_name || null });
         continue;
       }
 

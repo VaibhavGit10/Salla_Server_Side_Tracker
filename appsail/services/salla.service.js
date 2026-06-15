@@ -96,26 +96,44 @@ export async function exchangeCodeForToken(code) {
 export async function fetchStoreProfile(accessToken) {
   if (!accessToken) return null;
 
-  try {
-    const response = await axios.get("https://api.salla.dev/admin/v2/settings/store", {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json"
-      },
-      timeout: 10000
-    });
+  // Try the canonical store-profile endpoint first, then fall back. Both live
+  // under the Salla Merchant API and return { data: { name, domain, ... } }.
+  const endpoints = [
+    "https://api.salla.dev/admin/v2/store/info",
+    "https://api.salla.dev/admin/v2/settings/store"
+  ];
 
-    const d = response.data?.data || {};
-    return {
-      name: d.name || d.store_name || d.branch_name || null,
-      domain: d.domain || d.store_domain || null,
-      email: d.email || null
-    };
-  } catch (err) {
-    const status = err?.response?.status;
-    console.error("fetchStoreProfile failed", { status, store: "unknown" });
-    return null;
+  const pickName = (d) => {
+    let n = d?.name ?? d?.store_name ?? d?.branch_name ?? null;
+    // name can be a localized object: { ar: "...", en: "..." }
+    if (n && typeof n === "object") n = n.en || n.ar || Object.values(n).find(Boolean) || null;
+    return n ? String(n).trim() : null;
+  };
+
+  for (const url of endpoints) {
+    try {
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+        timeout: 10000
+      });
+
+      const d = response.data?.data || {};
+      const name = pickName(d);
+      if (name) {
+        return {
+          name,
+          domain: d.domain || d.store_domain || null,
+          email: d.email || null
+        };
+      }
+    } catch (err) {
+      const status = err?.response?.status;
+      console.error("fetchStoreProfile failed", { url, status });
+      // try the next endpoint
+    }
   }
+
+  return null;
 }
 
 export async function refreshAccessToken(refreshToken) {

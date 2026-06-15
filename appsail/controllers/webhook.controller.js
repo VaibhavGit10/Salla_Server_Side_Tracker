@@ -6,7 +6,8 @@ import {
   upsertStoreAuth,
   markStoreInstalled,
   markStoreUninstalled,
-  getStore
+  getStore,
+  refreshStoreNameFromApi
 } from "../datastore/stores.repo.js";
 
 import { dispatchGa4Event } from "../pipeline/ga4.dispatcher.js";
@@ -68,7 +69,15 @@ export async function handleSallaWebhook(req, res) {
     const eventType = String(req.body?.event || "").trim();
 
     if (eventType === "app.store.authorize") {
-      await upsertStoreAuth(req, req.body);
+      const saved = await upsertStoreAuth(req, req.body);
+      // Now that we have a valid OAuth token, pull the REAL store name from the
+      // Salla API and persist it (best-effort — never fail the webhook on this).
+      try {
+        const name = await refreshStoreNameFromApi(req, saved?.store_id);
+        if (name) console.log(`Store name synced from Salla API: ${saved?.store_id} → ${name}`);
+      } catch (e) {
+        console.error("Store name fetch failed:", e?.message || e);
+      }
       return res.json({ received: true, handled: "app.store.authorize" });
     }
 
